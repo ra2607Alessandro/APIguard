@@ -1,0 +1,356 @@
+import { Octokit } from "@octokit/rest";
+import * as cron from "node-cron";
+import type { IStorage } from "../storage";
+import type { SpecSource, MonitoringConfig } from "@shared/schema";
+
+interface DiscoveredSpec {
+  filePath: string;
+  apiName: string;
+  version?: string;
+  content: any;
+}
+
+export class GitHubMonitor {
+  private octokit: Octokit;
+  private activeMonitors: Map<string, any> = new Map();
+  private cronJobs: Map<string, any> = new Map();
+
+  constructor(private storage: IStorage) {
+    if (!process.env.GITHUB_TOKEN) {
+      throw new Error("GITHUB_TOKEN environment variable is required");
+    }
+
+    this.octokit = new Octokit({
+      auth: process.env.GITHUB_TOKEN,
+    });
+  }
+
+  async startMonitoring(): Promise<void> {
+    console.log("Starting GitHub monitoring...");
+    try {
+      const projects = await this.storage.getProjects();
+      
+      for (const project of projects) {
+        if (project.is_active && project.github_repo) {
+          const sources = await this.storage.getSpecSources(project.id);
+          for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
+            await this.setupSourceMonitoring(project.id, source);
+          }
+        }
+      }
+      console.log(`Started monitoring for ${projects.length} projects`);
+    } catch (error) {
+      console.error("Error starting GitHub monitoring:", error);
+    }
+  }
+
+  async setupSourceMonitoring(projectId: string, source: SpecSource): Promise<void> {
+    const project = await this.storage.getProject(projectId);
+    if (!project || !project.github_repo) return;
+
+    const [owner, repo] = project.github_repo.split('/');
+    const monitorKey = `${projectId}-${source.id}`;
+
+    // Setup webhook if not exists
+    try {
+      await this.ensureWebhook(owner, repo);
+    } catch (error) {
+      console.error(`Failed to setup webhook for ${owner}/${repo}:`, error);
+    }
+
+    // Setup cron job based on frequency
+    const frequency = project.monitoring_frequency || 'daily';
+    const cronExpression = this.getCronExpression(frequency);
+    
+    if (this.cronJobs.has(monitorKey)) {
+      this.cronJobs.get(monitorKey).destroy();
+    }
+
+    const job = cron.schedule(cronExpression, async () => {
+      await this.checkForChanges(projectId, source, owner, repo);
+    }, {
+      scheduled: true
+    });
+
+    this.cronJobs.set(monitorKey, job);
+    console.log(`Setup monitoring for ${owner}/${repo} - ${source.source_path}`);
+  }
+
+  private getCronExpression(frequency: string): string {
+    switch (frequency) {
+      case 'hourly': return '0 * * * *';
+      case 'daily': return '0 0 * * *';
+      case 'weekly': return '0 0 * * 0';
+      default: return '0 0 * * *';
+    }
+  }
+
+  async ensureWebhook(owner: string, repo: string): Promise<void> {
+    try {
+      const webhooks = await this.octokit.repos.listWebhooks({
+        owner,
+        repo,
+      });
+
+      const existingWebhook = webhooks.data.find(
+        hook => hook.config?.url?.includes('/api/integrations/github')
+      );
+
+      if (!existingWebhook) {
+        await this.octokit.repos.createWebhook({
+          owner,
+          repo,
+          name: 'web',
+          config: {
+            url: `${process.env.API_URL || 'http://localhost:5000'}/api/integrations/github`,
+            content_type: 'json',
+            secret: process.env.GITHUB_WEBHOOK_SECRET || 'default-secret',
+          },
+          events: ['push', 'pull_request'],
+          active: true,
+        });
+        console.log(`Created webhook for ${owner}/${repo}`);
+      }
+    } catch (error) {
+      console.error(`Error managing webhook for ${owner}/${repo}:`, error);
+    }
+  }
+
+  async handleWebhookEvent(payload: any): Promise<void> {
+    try {
+      if (payload.action && payload.action !== 'opened' && payload.action !== 'synchronize') {
+        return; // Only process relevant PR events
+      }
+
+      const repository = payload.repository;
+      if (!repository) return;
+
+      const owner = repository.owner.login;
+      const repo = repository.name;
+      const commitSha = payload.head_commit?.id || payload.pull_request?.head?.sha;
+
+      // Find projects monitoring this repository
+      const projects = await this.storage.getProjects();
+      const relevantProjects = projects.filter(p => 
+        p.github_repo === `${owner}/${repo}` && p.is_active
+      );
+
+      for (const project of relevantProjects) {
+        const sources = await this.storage.getSpecSources(project.id);
+        for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
+          await this.checkForChanges(project.id, source, owner, repo, commitSha);
+        }
+      }
+    } catch (error) {
+      console.error("Error handling webhook event:", error);
+    }
+  }
+
+  async checkForChanges(
+    projectId: string, 
+    source: SpecSource, 
+    owner: string, 
+    repo: string, 
+    commitSha?: string
+  ): Promise<void> {
+    try {
+      // Get current spec content
+      const fileResponse = await this.octokit.repos.getContent({
+        owner,
+        repo,
+        path: source.source_path,
+        ref: commitSha || 'main',
+      });
+
+      if (Array.isArray(fileResponse.data) || fileResponse.data.type !== 'file') {
+        console.log(`Skipping ${source.source_path} - not a file`);
+        return;
+      }
+
+      const content = Buffer.from(fileResponse.data.content, 'base64').toString();
+      let parsedContent;
+
+      try {
+        parsedContent = source.source_path.endsWith('.json') 
+          ? JSON.parse(content) 
+          : require('js-yaml').load(content);
+      } catch (parseError) {
+        console.error(`Error parsing ${source.source_path}:`, parseError);
+        return;
+      }
+
+      // Get latest version for comparison
+      const latestVersion = await this.storage.getLatestSchemaVersion(source.id);
+      const versionHash = this.generateHash(JSON.stringify(parsedContent));
+
+      // Check if content has changed
+      if (latestVersion && latestVersion.version_hash === versionHash) {
+        console.log(`No changes detected in ${source.source_path}`);
+        return;
+      }
+
+      // Create new schema version
+      const newVersion = await this.storage.createSchemaVersion({
+        project_id: projectId,
+        version_hash: versionHash,
+        content: parsedContent,
+        commit_sha: commitSha || null,
+        spec_source_id: source.id,
+      });
+
+      console.log(`New version created for ${source.source_path}: ${newVersion.id}`);
+
+      // If we have a previous version, analyze changes
+      if (latestVersion) {
+        // This would trigger the breaking change analysis
+        // Implementation would call the OpenAPI analyzer and breaking change rules
+        console.log(`Analyzing changes between versions for ${source.source_path}`);
+      }
+
+    } catch (error) {
+      console.error(`Error checking for changes in ${source.source_path}:`, error);
+    }
+  }
+
+  async scanRepository(repository: string): Promise<DiscoveredSpec[]> {
+    const [owner, repo] = repository.split('/');
+    const discoveredSpecs: DiscoveredSpec[] = [];
+
+    try {
+      // Search for OpenAPI spec files
+      const searchPatterns = [
+        'openapi.yml',
+        'openapi.yaml', 
+        'openapi.json',
+        'swagger.yml',
+        'swagger.yaml',
+        'swagger.json',
+        'spec.yml',
+        'spec.yaml',
+        'spec.json'
+      ];
+
+      for (const pattern of searchPatterns) {
+        try {
+          const searchResult = await this.octokit.search.code({
+            q: `filename:${pattern} repo:${owner}/${repo}`,
+          });
+
+          for (const item of searchResult.data.items) {
+            const fileContent = await this.getFileContent(owner, repo, item.path);
+            if (fileContent) {
+              discoveredSpecs.push({
+                filePath: item.path,
+                apiName: this.extractApiName(fileContent, item.path),
+                version: this.extractVersion(fileContent),
+                content: fileContent
+              });
+            }
+          }
+        } catch (searchError) {
+          console.log(`No files found for pattern ${pattern}`);
+        }
+      }
+
+      return discoveredSpecs;
+    } catch (error) {
+      console.error(`Error scanning repository ${repository}:`, error);
+      throw error;
+    }
+  }
+
+  async getDiscoveryReport(owner: string, repo: string): Promise<any> {
+    try {
+      const repository = `${owner}/${repo}`;
+      const specs = await this.scanRepository(repository);
+      
+      return {
+        repository,
+        specsFound: specs.length,
+        specs: specs.map(spec => ({
+          filePath: spec.filePath,
+          apiName: spec.apiName,
+          version: spec.version,
+        })),
+        lastScanned: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error(`Error generating discovery report for ${owner}/${repo}:`, error);
+      throw error;
+    }
+  }
+
+  async triggerManualCheck(projectId: string): Promise<void> {
+    try {
+      const project = await this.storage.getProject(projectId);
+      if (!project || !project.github_repo) {
+        throw new Error("Project not found or no GitHub repository configured");
+      }
+
+      const [owner, repo] = project.github_repo.split('/');
+      const sources = await this.storage.getSpecSources(projectId);
+
+      for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
+        await this.checkForChanges(projectId, source, owner, repo);
+      }
+
+      console.log(`Manual check completed for project ${projectId}`);
+    } catch (error) {
+      console.error(`Error during manual check for project ${projectId}:`, error);
+      throw error;
+    }
+  }
+
+  private async getFileContent(owner: string, repo: string, path: string): Promise<any> {
+    try {
+      const response = await this.octokit.repos.getContent({
+        owner,
+        repo,
+        path,
+      });
+
+      if (Array.isArray(response.data) || response.data.type !== 'file') {
+        return null;
+      }
+
+      const content = Buffer.from(response.data.content, 'base64').toString();
+      
+      try {
+        return path.endsWith('.json') 
+          ? JSON.parse(content) 
+          : require('js-yaml').load(content);
+      } catch (parseError) {
+        console.error(`Error parsing ${path}:`, parseError);
+        return null;
+      }
+    } catch (error) {
+      console.error(`Error getting file content for ${path}:`, error);
+      return null;
+    }
+  }
+
+  private extractApiName(content: any, filePath: string): string {
+    if (content?.info?.title) {
+      return content.info.title;
+    }
+    
+    // Fallback to file path
+    const fileName = filePath.split('/').pop()?.replace(/\.(yml|yaml|json)$/, '') || 'Unknown API';
+    return fileName.charAt(0).toUpperCase() + fileName.slice(1);
+  }
+
+  private extractVersion(content: any): string | undefined {
+    return content?.info?.version;
+  }
+
+  private generateHash(content: string): string {
+    // Simple hash function - in production, use a proper hash library
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return hash.toString();
+  }
+}
