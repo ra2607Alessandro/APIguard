@@ -68,8 +68,6 @@ export class GitHubMonitor {
 
     const job = cron.schedule(cronExpression, async () => {
       await this.checkForChanges(projectId, source, owner, repo);
-    }, {
-      scheduled: true
     });
 
     this.cronJobs.set(monitorKey, job);
