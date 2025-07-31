@@ -1,0 +1,304 @@
+# API Sentinel MVP - Comprehensive Replit Development Project
+
+## Project Overview
+Build **API Sentinel**, a proactive web application that monitors GitHub repositories for API changes and detects breaking changes before they hit production. The system automatically analyzes OpenAPI specification changes, classifies them by severity, and sends intelligent alerts through multiple channels to prevent API breakage.
+
+## Core Application Goal
+Create a hands-off monitoring system that:
+1. Continuously monitors GitHub repositories for OpenAPI spec changes
+2. Automatically detects and classifies breaking vs non-breaking changes
+3. Sends contextual alerts only for potentially breaking changes
+4. Provides visual dashboards for change tracking and risk assessment
+5. Integrates seamlessly with CI/CD workflows to block risky deployments
+
+## Technical Requirements
+
+### Full-Stack Architecture
+- **Frontend**: React 18 + TypeScript SPA with Vite build system
+- **Backend**: Express.js REST API server with TypeScript
+- **Database**: PostgreSQL with Drizzle ORM for type-safe database operations
+- **Monorepo Structure**: Shared TypeScript types between client/server
+
+### Key Dependencies
+```json
+{
+  "core": {
+    "@neondatabase/serverless": "^0.10.4",
+    "@octokit/rest": "^22.0.0", 
+    "@slack/web-api": "^7.9.3",
+    "openapi-diff": "^0.23.7",
+    "swagger-parser": "^10.0.3",
+    "drizzle-orm": "^0.39.1"
+  },
+  "frontend": {
+    "@tanstack/react-query": "^5.60.5",
+    "@radix-ui/react-*": "latest",
+    "tailwindcss": "^3.4.17",
+    "react-router-dom": "^7.7.1",
+    "recharts": "^2.15.2"
+  },
+  "backend": {
+    "express": "^4.21.2",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.5",
+    "helmet": "^8.1.0",
+    "cors": "^2.8.5"
+  }
+}
+```
+
+## Database Schema Implementation
+
+Create PostgreSQL tables with Drizzle ORM:
+
+```typescript
+// shared/schema.ts
+export const projects = pgTable("projects", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  github_repo: text("github_repo"),
+  monitoringFrequency: text("monitoring_frequency").default('daily'),
+  discovery_status: text("discovery_status").default('not_started'),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const schemaVersions = pgTable("schema_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").references(() => projects.id).notNull(),
+  versionHash: text("version_hash").unique().notNull(),
+  content: json("content").notNull(),
+  commitSha: text("commit_sha"),
+  spec_source_id: varchar("spec_source_id").references(() => specSources.id).notNull(),
+  environment_id: varchar("environment_id").references(() => environments.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const changeAnalyses = pgTable("change_analyses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").references(() => projects.id).notNull(),
+  oldVersionId: varchar("old_version_id").references(() => schemaVersions.id),
+  newVersionId: varchar("new_version_id").references(() => schemaVersions.id).notNull(),
+  breakingChanges: json("breaking_changes").notNull(),
+  nonBreakingChanges: json("non_breaking_changes").notNull(),
+  analysisSummary: text("analysis_summary"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const alertConfigs = pgTable("alert_configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").references(() => projects.id).notNull(),
+  channelType: text("channel_type").notNull(), // 'slack', 'email', 'github', 'webhook'
+  configData: json("config_data").notNull(),
+  isActive: boolean("is_active").default(true),
+});
+
+// Additional tables: specSources, environments, discoveredSpecs, monitoringConfigs
+```
+
+## Breaking Change Detection Engine
+
+Implement comprehensive rule-based change detection:
+
+```typescript
+// server/services/breakingChangeRules.ts
+export const breakingChangeRules = {
+  'endpoint_removed': { 
+    severity: 'critical', 
+    message: 'API endpoint removed',
+    impact: 'Clients calling this endpoint will receive 404 errors',
+    recommendation: 'Deprecate endpoint first, then remove after grace period'
+  },
+  'method_removed': { 
+    severity: 'critical', 
+    message: 'HTTP method removed',
+    impact: 'Clients using this HTTP method will receive 405 Method Not Allowed errors',
+    recommendation: 'Add deprecation warning before removing methods'
+  },
+  'required_param_added': { 
+    severity: 'critical', 
+    message: 'New required parameter added',
+    impact: 'Existing clients will send invalid requests missing the required parameter',
+    recommendation: 'Make parameter optional with sensible defaults, or version the API'
+  },
+  'response_field_removed': { 
+    severity: 'high', 
+    message: 'Response field removed',
+    impact: 'Client code expecting this field may break or behave unexpectedly',
+    recommendation: 'Deprecate field first, return null/empty values during transition'
+  },
+  'field_type_changed': { 
+    severity: 'high', 
+    message: 'Field type changed',
+    impact: 'Clients may fail to parse responses or send incorrect data types',
+    recommendation: 'Use API versioning or introduce new field with different name'
+  },
+  'enum_value_removed': { 
+    severity: 'medium', 
+    message: 'Enum value removed',
+    impact: 'Clients sending removed enum values will receive validation errors',
+    recommendation: 'Deprecate enum values and handle gracefully in API logic'
+  },
+  'default_value_changed': { 
+    severity: 'medium', 
+    message: 'Default value changed',
+    impact: 'Client behavior may change for requests that rely on default values',
+    recommendation: 'Document default value changes and consider backwards compatibility'
+  }
+};
+```
+
+## Core API Endpoints
+
+Implement essential REST endpoints:
+
+```typescript
+// server/routes.ts
+POST /api/projects - Create new monitoring project
+GET /api/projects - List all projects with status
+PUT /api/projects/:id - Update project configuration
+
+POST /api/schemas/compare - Compare two OpenAPI specs
+GET /api/projects/:id/history - Get change analysis history
+
+POST /api/integrations/github - GitHub webhook handler
+POST /api/webhooks/github - Webhook processor for repository events
+
+POST /api/alerts/configure - Setup notification channels
+POST /api/alerts/test - Test alert configurations
+
+GET /api/dashboard/stats - Dashboard metrics and recent changes
+POST /api/projects/:id/monitoring/trigger - Manual monitoring trigger
+
+POST /api/discovery/repository - GitHub repository scanning
+GET /api/discovery/report/:owner/:repo - Discovery analysis report
+
+POST /api/ci/validate - CI/CD integration for PR validation
+```
+
+## GitHub Integration Service
+
+Build comprehensive GitHub monitoring:
+
+```typescript
+// server/services/githubMonitor.ts
+export class GitHubMonitor {
+  private activeMonitors: Map<string, MonitorConfig> = new Map();
+  private cronJobs: Map<string, any> = new Map();
+
+  async startMonitoring() {
+    // Setup monitoring for all GitHub-connected projects
+    const projects = await storage.getProjects();
+    for (const project of projects) {
+      const sources = await storage.getSpecSources(project.id);
+      for (const source of sources.filter(s => s.type === 'github')) {
+        await this.setupSourceMonitoring(project.id, source);
+      }
+    }
+  }
+
+  async setupSourceMonitoring(projectId: string, source: SpecSource) {
+    // Create GitHub webhook
+    // Setup cron job based on frequency
+    // Store monitoring configuration
+  }
+
+  async handleWebhookEvent(payload: any) {
+    // Process GitHub push events
+    // Detect OpenAPI spec changes
+    // Trigger comparison and alerts
+  }
+
+  async checkForMultiSpecChanges(config: MonitorConfig) {
+    // Fetch current specs from GitHub
+    // Compare with stored versions
+    // Generate alerts for breaking changes
+  }
+}
+```
+
+## Frontend Components Architecture
+
+Build React components with shadcn/ui:
+
+```typescript
+// client/src/App.tsx - Main routing
+// client/src/pages/dashboard-new.tsx - Primary dashboard
+// client/src/pages/setup-wizard.tsx - 4-step onboarding
+// client/src/pages/projects.tsx - Project management
+// client/src/pages/monitoring-dashboard.tsx - Live monitoring
+// client/src/pages/alerts.tsx - Alert configuration
+// client/src/pages/integrations.tsx - GitHub/Slack setup
+// client/src/components/api-management-table.tsx - API listing
+// client/src/components/change-visualization.tsx - Change timeline
+// client/src/components/repository-scanner.tsx - GitHub scanning
+```
+
+## 4-Step Setup Wizard Implementation
+
+Create guided onboarding flow:
+
+```typescript
+const steps = [
+  { id: 1, title: 'Project & Source', description: 'Name your project and add API spec' },
+  { id: 2, title: 'Notifications', description: 'Set up alerts for breaking changes' }, 
+  { id: 3, title: 'Complete', description: 'Review and finish setup' }
+];
+
+// Step 1: Project creation + GitHub repository scanning
+// Step 2: Alert channel configuration (Slack/Email) with testing
+// Step 3: Summary and activation
+```
+
+## Alert System Implementation
+
+Build multi-channel notification system:
+
+```typescript
+// server/services/alerts.ts
+export class AlertService {
+  async triggerConfiguredAlerts(projectId: string, apiName: string, result: ComparisonResult, alertConfigs: AlertConfig[]) {
+    for (const config of alertConfigs) {
+      if (config.isActive) {
+        await this.routeAlert(config, this.generateContextAwareMessage(apiName, result));
+      }
+    }
+  }
+
+  private async routeAlert(config: AlertConfig, message: string) {
+    switch (config.channelType) {
+      case 'slack': await this.sendSlackMessage(config.configData.webhookUrl, message); break;
+      case 'email': await this.sendEmail(config.configData, message); break;
+      case 'github': await this.createGitHubComment(config.configData, message); break;
+      case 'webhook': await this.sendWebhook(config.configData.url, message); break;
+    }
+  }
+}
+```
+
+## Environment Configuration
+
+Setup required environment variables:
+
+```bash
+# Database
+DATABASE_URL=postgresql://user:pass@host:port/dbname
+
+# GitHub Integration
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxx
+GITHUB_CLIENT_ID=xxxxxxxxxxxxx
+GITHUB_CLIENT_SECRET=xxxxxxxxxxxxx
+GITHUB_WEBHOOK_SECRET=xxxxxxxxxxxxx
+
+# Slack Integration  
+SLACK_BOT_TOKEN=xoxb-xxxxxxxxxxxxx
+SLACK_CLIENT_ID=xxxxxxxxxxxxx
+SLACK_CLIENT_SECRET=xxxxxxxxxxxxx
+
+# Server Configuration
+SESSION_SECRET=your-session-secret
+PORT=5000
+NODE_ENV=development
+API_URL=https://your-replit-url.replit.dev
+```
+
+## Deployment Structure
