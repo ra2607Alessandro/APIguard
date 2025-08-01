@@ -41,7 +41,8 @@ export default function SetupWizard({ open, onOpenChange, onComplete }: SetupWiz
   const scanMutation = useMutation({
     mutationFn: (repository: string) => api.scanRepository(repository),
     onSuccess: (data) => {
-      const specs: DiscoveredSpec[] = data.specs.map((spec: any) => ({
+      console.log('Repository scan result:', data);
+      const specs: DiscoveredSpec[] = (data.specs || []).map((spec: any) => ({
         filePath: spec.filePath,
         apiName: spec.apiName,
         version: spec.version,
@@ -49,16 +50,27 @@ export default function SetupWizard({ open, onOpenChange, onComplete }: SetupWiz
       }));
       setWizardData(prev => ({ ...prev, discoveredSpecs: specs }));
       setScanning(false);
-      toast({
-        title: "Repository scanned",
-        description: `Found ${specs.length} OpenAPI specification${specs.length === 1 ? '' : 's'}`,
-      });
+      
+      if (specs.length > 0) {
+        toast({
+          title: "Repository scanned successfully",
+          description: `Found ${specs.length} OpenAPI specification${specs.length === 1 ? '' : 's'}`,
+        });
+      } else {
+        toast({
+          title: "Repository scanned",
+          description: data.message || "No OpenAPI specifications found",
+          variant: "default",
+        });
+      }
     },
-    onError: (error) => {
+    onError: (error: any) => {
       setScanning(false);
+      console.error('Repository scan error:', error);
+      const errorMessage = error?.message || "Failed to scan repository";
       toast({
         title: "Scan failed",
-        description: error instanceof Error ? error.message : "Failed to scan repository",
+        description: errorMessage,
         variant: "destructive",
       });
     },
@@ -66,21 +78,22 @@ export default function SetupWizard({ open, onOpenChange, onComplete }: SetupWiz
 
   const createProjectMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await api.createProject(data);
-      return response.json();
+      return await api.setupProject(data);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      console.log('Project setup result:', result);
       toast({
-        title: "Project created",
-        description: "Your project has been set up successfully",
+        title: "Project created successfully",
+        description: result.message || "Your project has been set up successfully",
       });
       onComplete?.();
       onOpenChange(false);
     },
-    onError: (error) => {
+    onError: (error: any) => {
+      console.error('Project creation error:', error);
       toast({
         title: "Creation failed",
-        description: error instanceof Error ? error.message : "Failed to create project",
+        description: error?.message || "Failed to create project",
         variant: "destructive",
       });
     },
@@ -124,12 +137,23 @@ export default function SetupWizard({ open, onOpenChange, onComplete }: SetupWiz
   const handleComplete = () => {
     const selectedSpecs = wizardData.discoveredSpecs.filter(spec => spec.selected);
     
-    createProjectMutation.mutate({
+    const projectData = {
       name: wizardData.projectName,
       github_repo: wizardData.githubRepository,
       monitoring_frequency: wizardData.monitoringFrequency,
-      specs: selectedSpecs,
-    });
+      discovered_specs: selectedSpecs.map(spec => ({
+        filePath: spec.filePath,
+        apiName: spec.apiName,
+        version: spec.version,
+      })),
+      alert_configs: wizardData.alertChannels.filter(channel => channel.enabled).map(channel => ({
+        channel_type: channel.type,
+        config_data: channel.config,
+      })),
+    };
+    
+    console.log('Creating project with data:', projectData);
+    createProjectMutation.mutate(projectData);
   };
 
   const canProceed = () => {
