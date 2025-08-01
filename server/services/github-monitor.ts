@@ -2,6 +2,7 @@ import { Octokit } from "@octokit/rest";
 import * as cron from "node-cron";
 import type { IStorage } from "../storage";
 import type { SpecSource, MonitoringConfig } from "@shared/schema";
+import * as yaml from 'js-yaml';
 
 interface DiscoveredSpec {
   filePath: string;
@@ -332,31 +333,76 @@ export class GitHubMonitor {
       const defaultBranch = repoInfo.data.default_branch;
       console.log(`📝 Using default branch: ${defaultBranch}`);
 
-      // Common paths where OpenAPI specs are found
+      // Comprehensive paths where OpenAPI specs are commonly found
       const commonPaths = [
+        // Root level files
         'openapi.yaml',
         'openapi.yml', 
         'openapi.json',
         'swagger.yaml',
         'swagger.yml',
         'swagger.json',
+        'api-spec.yaml',
+        'api-spec.yml',
+        'api-spec.json',
+        'api.yaml',
+        'api.yml',
+        'api.json',
+        // API directory
         'api/openapi.yaml',
         'api/openapi.yml',
         'api/openapi.json',
+        'api/swagger.yaml',
+        'api/swagger.yml',
+        'api/swagger.json',
+        'api/api.yaml',
+        'api/api.yml',
+        'api/api.json',
+        // Documentation directories
         'docs/openapi.yaml',
         'docs/openapi.yml', 
         'docs/openapi.json',
+        'docs/swagger.yaml',
+        'docs/swagger.yml',
+        'docs/swagger.json',
+        'docs/api.yaml',
+        'docs/api.yml',
+        'docs/api.json',
+        'documentation/openapi.yaml',
+        'documentation/openapi.yml',
+        'documentation/openapi.json',
+        // Spec directories
         'spec/openapi.yaml',
         'spec/openapi.yml',
         'spec/openapi.json',
+        'spec/swagger.yaml',
+        'spec/swagger.yml',
+        'spec/swagger.json',
         'specs/openapi.yaml',
         'specs/openapi.yml',
         'specs/openapi.json',
-        'api-spec.yaml',
-        'api-spec.yml',
-        'api.yaml',
-        'api.yml',
-        'api.json'
+        'specs/swagger.yaml',
+        'specs/swagger.yml',
+        'specs/swagger.json',
+        'specifications/openapi.yaml',
+        'specifications/openapi.yml',
+        'specifications/openapi.json',
+        // Common alternative locations
+        'schema/openapi.yaml',
+        'schema/openapi.yml',
+        'schema/openapi.json',
+        'schemas/openapi.yaml',
+        'schemas/openapi.yml',
+        'schemas/openapi.json',
+        'public/api.yaml',
+        'public/api.yml',
+        'public/api.json',
+        'static/api.yaml',
+        'static/api.yml',
+        'static/api.json',
+        'assets/api.yaml',
+        'assets/api.yml',
+        'assets/api.json'
       ];
 
       console.log(`📋 Checking ${commonPaths.length} common OpenAPI file paths...`);
@@ -376,9 +422,17 @@ export class GitHubMonitor {
             let parsedContent;
 
             try {
-              parsedContent = path.endsWith('.json') 
-                ? JSON.parse(content) 
-                : require('js-yaml').load(content);
+              if (path.endsWith('.json')) {
+                parsedContent = JSON.parse(content);
+              } else {
+                try {
+                  parsedContent = yaml.load(content);
+                } catch (yamlError: any) {
+                  // Fallback: Try to parse as JSON in case it's a JSON file with .yaml extension
+                  console.log(`YAML parsing failed for ${path}, trying JSON fallback: ${yamlError.message}`);
+                  parsedContent = JSON.parse(content);
+                }
+              }
 
               // Validate it's actually an OpenAPI spec
               if (this.isValidOpenAPISpec(parsedContent)) {
@@ -403,6 +457,12 @@ export class GitHubMonitor {
             console.error(`🔑 Authentication failed - check GITHUB_TOKEN permissions`);
           }
         }
+      }
+
+      // If no specs found in common paths, perform recursive search
+      if (discoveredSpecs.length === 0) {
+        console.log(`🔍 No specs found in common paths. Performing recursive search...`);
+        await this.recursiveSearch(owner, repo, defaultBranch, '', discoveredSpecs, 0);
       }
 
       console.log(`✅ Repository scan complete. Found ${discoveredSpecs.length} OpenAPI specs`);
@@ -530,6 +590,112 @@ export class GitHubMonitor {
     } catch {
       return false;
     }
+  }
+
+  // Recursive search for OpenAPI specs in any directory
+  private async recursiveSearch(
+    owner: string, 
+    repo: string, 
+    branch: string, 
+    path: string, 
+    discoveredSpecs: DiscoveredSpec[], 
+    depth: number
+  ): Promise<void> {
+    // Limit recursion depth to prevent infinite loops
+    if (depth > 3) {
+      console.log(`🔍 Max recursion depth reached for path: ${path}`);
+      return;
+    }
+
+    try {
+      const contents = await this.octokit.repos.getContent({
+        owner,
+        repo,
+        path,
+        ref: branch
+      });
+
+      if (Array.isArray(contents.data)) {
+        for (const item of contents.data) {
+          if (item.type === 'file') {
+            // Check if this file might be an OpenAPI spec
+            if (this.isLikelyOpenAPIFile(item.name)) {
+              console.log(`🔍 Found potential OpenAPI file: ${item.path}`);
+              try {
+                const fileResponse = await this.octokit.repos.getContent({
+                  owner,
+                  repo,
+                  path: item.path,
+                  ref: branch
+                });
+
+                if (!Array.isArray(fileResponse.data) && fileResponse.data.type === 'file') {
+                  const content = Buffer.from(fileResponse.data.content, 'base64').toString();
+                  let parsedContent;
+
+                  try {
+                    if (item.name.endsWith('.json')) {
+                      parsedContent = JSON.parse(content);
+                    } else {
+                      try {
+                        parsedContent = yaml.load(content);
+                      } catch (yamlError: any) {
+                        // Fallback: Try to parse as JSON in case it's a JSON file with .yaml extension
+                        console.log(`YAML parsing failed for ${item.path}, trying JSON fallback: ${yamlError.message}`);
+                        parsedContent = JSON.parse(content);
+                      }
+                    }
+
+                    if (this.isValidOpenAPISpec(parsedContent)) {
+                      console.log(`✅ Found valid OpenAPI spec at: ${item.path}`);
+                      discoveredSpecs.push({
+                        filePath: item.path,
+                        apiName: this.extractApiName(parsedContent, item.path),
+                        version: this.extractVersion(parsedContent),
+                        content: parsedContent
+                      });
+                    }
+                  } catch (parseError: any) {
+                    console.log(`❌ Failed to parse ${item.path}: ${parseError.message}`);
+                  }
+                }
+              } catch (error: any) {
+                console.log(`❌ Error reading file ${item.path}: ${error.message}`);
+              }
+            }
+          } else if (item.type === 'dir' && !this.shouldSkipDirectory(item.name)) {
+            // Recursively search subdirectories
+            await this.recursiveSearch(owner, repo, branch, item.path, discoveredSpecs, depth + 1);
+          }
+        }
+      }
+    } catch (error: any) {
+      console.log(`❌ Error scanning directory ${path}: ${error.message}`);
+    }
+  }
+
+  // Check if a file name suggests it might be an OpenAPI spec
+  private isLikelyOpenAPIFile(fileName: string): boolean {
+    const lowerName = fileName.toLowerCase();
+    const openApiKeywords = ['openapi', 'swagger', 'api'];
+    const extensions = ['.yaml', '.yml', '.json'];
+    
+    return extensions.some(ext => lowerName.endsWith(ext)) &&
+           openApiKeywords.some(keyword => lowerName.includes(keyword));
+  }
+
+  // Skip common directories that are unlikely to contain OpenAPI specs
+  private shouldSkipDirectory(dirName: string): boolean {
+    const skipDirs = ['node_modules', '.git', '.github', 'vendor', 'target', 'build', 'dist', 'out'];
+    return skipDirs.includes(dirName.toLowerCase());
+  }
+
+  private extractApiName(content: any, filePath: string): string {
+    return content.info?.title || `API from ${filePath}`;
+  }
+
+  private extractVersion(content: any): string | undefined {
+    return content.info?.version;
   }
 
   // Make generateHash public for use in routes
