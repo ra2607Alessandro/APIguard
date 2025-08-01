@@ -13,6 +13,8 @@ import { GitHubMonitor } from "./services/github-monitor";
 import { BreakingChangeAnalyzer } from "./services/breaking-change-rules";
 import { AlertService } from "./services/alert-service";
 import { OpenAPIAnalyzer } from "./services/openapi-analyzer";
+import { githubService } from "./services/github";
+import { insertGithubInstallationSchema } from "@shared/schema";
 
 const githubMonitor = new GitHubMonitor(storage);
 const breakingChangeAnalyzer = new BreakingChangeAnalyzer();
@@ -468,6 +470,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error validating CI/CD:", error);
       res.status(500).json({ message: "Failed to validate deployment" });
+    }
+  });
+
+  // GitHub App Installation routes
+  app.post("/api/github/installation", async (req, res) => {
+    try {
+      const { action, installation, repositories } = req.body;
+      
+      if (action === 'created') {
+        // Handle new installation - will be connected to user through OAuth flow
+        console.log(`New GitHub App installation: ${installation.id} for ${installation.account.login}`);
+        res.status(200).json({ message: "Installation webhook received" });
+      } else if (action === 'deleted') {
+        // Handle installation removal
+        await githubService.removeInstallation('', installation.id);
+        res.status(200).json({ message: "Installation removed" });
+      } else {
+        res.status(200).json({ message: "Webhook received" });
+      }
+    } catch (error) {
+      console.error("Error processing installation webhook:", error);
+      res.status(500).json({ message: "Failed to process installation webhook" });
+    }
+  });
+
+  app.get("/api/github/installations", async (req, res) => {
+    try {
+      // TODO: Get user ID from session when auth is implemented
+      const userId = req.query.userId as string || 'default-user';
+      const installations = await githubService.getUserInstallations(userId);
+      res.json(installations);
+    } catch (error) {
+      console.error("Error fetching user installations:", error);
+      res.status(500).json({ message: "Failed to fetch installations" });
+    }
+  });
+
+  app.delete("/api/github/installation/:id", async (req, res) => {
+    try {
+      // TODO: Get user ID from session when auth is implemented
+      const userId = req.query.userId as string || 'default-user';
+      const installationId = parseInt(req.params.id);
+      await githubService.removeInstallation(userId, installationId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error removing installation:", error);
+      res.status(500).json({ message: "Failed to remove installation" });
+    }
+  });
+
+  app.get("/api/github/installation/:id/repositories", async (req, res) => {
+    try {
+      const installationId = parseInt(req.params.id);
+      const repositories = await githubService.getInstallationRepositories(installationId);
+      res.json(repositories);
+    } catch (error) {
+      console.error("Error fetching installation repositories:", error);
+      res.status(500).json({ message: "Failed to fetch repositories" });
+    }
+  });
+
+  // GitHub App OAuth connection
+  app.post("/api/github/connect", async (req, res) => {
+    try {
+      const { userId, installationId, accountLogin, accountType, permissions } = req.body;
+      
+      const installation = await githubService.storeInstallation({
+        userId,
+        installationId,
+        accountLogin,
+        accountType,
+        permissions,
+      });
+      
+      res.status(201).json(installation);
+    } catch (error) {
+      console.error("Error connecting GitHub installation:", error);
+      res.status(500).json({ message: "Failed to connect GitHub installation" });
+    }
+  });
+
+  // Repository scanning with installation token
+  app.post("/api/discovery/repository-with-installation", async (req, res) => {
+    try {
+      const { repository, installationId } = req.body;
+      
+      if (!repository || !installationId) {
+        return res.status(400).json({ message: "Repository and installation ID are required" });
+      }
+
+      // Parse repository string
+      let owner: string, repo: string;
+      if (repository.includes('/')) {
+        [owner, repo] = repository.split('/');
+      } else {
+        return res.status(400).json({ message: "Repository must be in format 'owner/repo'" });
+      }
+
+      // Check if installation can access this repository
+      const canAccess = await githubService.canAccessRepository(parseInt(installationId), owner, repo);
+      if (!canAccess) {
+        return res.status(403).json({ message: "Installation does not have access to this repository" });
+      }
+
+      // Scan repository using installation token
+      const result = await githubService.scanRepositoryForSpecs(parseInt(installationId), owner, repo);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error scanning repository with installation:", error);
+      res.status(500).json({ message: "Failed to scan repository" });
     }
   });
 

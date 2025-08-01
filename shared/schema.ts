@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, json, boolean, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, json, boolean, integer, serial } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -245,10 +245,43 @@ export const users = pgTable("users", {
   password: text("password").notNull(),
 });
 
+// GitHub installations table
+export const github_installations = pgTable("github_installations", {
+  id: serial("id").primaryKey(),
+  user_id: varchar("user_id").references(() => users.id).notNull(),
+  installation_id: integer("installation_id").notNull(),
+  account_login: varchar("account_login", { length: 255 }),
+  account_type: varchar("account_type", { length: 50 }), // 'User' or 'Organization'
+  permissions: json("permissions"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+// Relations for users and installations
+export const usersRelations = relations(users, ({ many }) => ({
+  githubInstallations: many(github_installations),
+}));
+
+export const githubInstallationsRelations = relations(github_installations, ({ one }) => ({
+  user: one(users, {
+    fields: [github_installations.user_id],
+    references: [users.id],
+  }),
+}));
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
 });
 
+export const insertGithubInstallationSchema = createInsertSchema(github_installations).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+export type InsertGithubInstallation = z.infer<typeof insertGithubInstallationSchema>;
+export type GithubInstallation = typeof github_installations.$inferSelect;

@@ -1,442 +1,306 @@
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Github, MessageSquare, Code, ExternalLink, Copy, CheckCircle, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Github, ExternalLink, Trash2, Settings } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+
+interface GitHubInstallation {
+  id: number;
+  user_id: string;
+  installation_id: number;
+  account_login: string;
+  account_type: 'User' | 'Organization';
+  permissions: any;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Repository {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  owner: {
+    login: string;
+    avatar_url: string;
+  };
+  description: string;
+  url: string;
+}
 
 export default function Integrations() {
   const { toast } = useToast();
-  const [copied, setCopied] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [selectedInstallation, setSelectedInstallation] = useState<number | null>(null);
 
-  const integrationStatus = {
-    github: true,
-    slack: false,
-    ci: false,
+  // Fetch GitHub installations
+  const { data: installations, isLoading: installationsLoading } = useQuery({
+    queryKey: ['/api/github/installations'],
+    queryFn: () => apiRequest('/api/github/installations?userId=default-user'),
+  });
+
+  // Fetch repositories for selected installation
+  const { data: repositories, isLoading: repositoriesLoading } = useQuery({
+    queryKey: ['/api/github/installation', selectedInstallation, 'repositories'],
+    queryFn: () => apiRequest(`/api/github/installation/${selectedInstallation}/repositories`),
+    enabled: !!selectedInstallation,
+  });
+
+  // Remove installation mutation
+  const removeInstallationMutation = useMutation({
+    mutationFn: (installationId: number) => 
+      apiRequest(`/api/github/installation/${installationId}?userId=default-user`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/github/installations'] });
+      toast({
+        title: "Installation removed",
+        description: "GitHub App installation has been removed successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to remove GitHub App installation.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Test repository scanning with installation
+  const testScanMutation = useMutation({
+    mutationFn: ({ repository, installationId }: { repository: string; installationId: number }) =>
+      apiRequest('/api/discovery/repository-with-installation', {
+        method: 'POST',
+        body: JSON.stringify({ repository, installationId }),
+      }),
+    onSuccess: (data) => {
+      toast({
+        title: "Repository scanned successfully",
+        description: `Found ${data.specsFound} OpenAPI specifications.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Scan failed",
+        description: error.message || "Failed to scan repository.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleInstallGitHubApp = () => {
+    // Redirect to GitHub App installation URL
+    const appId = import.meta.env.VITE_GITHUB_APP_ID;
+    if (appId) {
+      window.open(`https://github.com/apps/your-app-name/installations/new`, '_blank');
+    } else {
+      toast({
+        title: "Configuration Error",
+        description: "GitHub App ID not configured.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleCopy = (text: string, type: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(type);
-    toast({
-      title: "Copied to clipboard",
-      description: "The code has been copied to your clipboard",
-    });
-    setTimeout(() => setCopied(null), 2000);
+  const handleRemoveInstallation = (installationId: number) => {
+    if (confirm('Are you sure you want to remove this GitHub App installation?')) {
+      removeInstallationMutation.mutate(installationId);
+    }
   };
 
-  const webhookUrl = `${window.location.origin}/api/integrations/github`;
-  const ciValidationUrl = `${window.location.origin}/api/ci/validate`;
+  const handleTestScan = (repository: string, installationId: number) => {
+    testScanMutation.mutate({ repository, installationId });
+  };
 
   return (
-    <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-      {/* Header Section */}
-      <div className="mb-8">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">Integrations</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Connect API Sentinel with your development workflow
-            </p>
-          </div>
-        </div>
+    <div className="container mx-auto py-6 space-y-8">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Integrations</h1>
+        <p className="text-muted-foreground">
+          Manage your GitHub App installations and repository access.
+        </p>
       </div>
 
-      <Tabs defaultValue="github" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="github" className="flex items-center space-x-2">
-            <Github className="h-4 w-4" />
-            <span>GitHub</span>
-          </TabsTrigger>
-          <TabsTrigger value="slack" className="flex items-center space-x-2">
-            <MessageSquare className="h-4 w-4" />
-            <span>Slack</span>
-          </TabsTrigger>
-          <TabsTrigger value="ci" className="flex items-center space-x-2">
-            <Code className="h-4 w-4" />
-            <span>CI/CD</span>
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="github">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Github className="h-5 w-5" />
-                    <CardTitle>GitHub Integration</CardTitle>
+      <div className="grid gap-8 md:grid-cols-2">
+        {/* GitHub App Installation */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Github className="h-5 w-5" />
+              GitHub App
+            </CardTitle>
+            <CardDescription>
+              Install the GitHub App to access your private repositories and enable automatic monitoring.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {installationsLoading ? (
+              <div className="text-center text-muted-foreground">Loading installations...</div>
+            ) : (
+              <>
+                {installations && installations.length > 0 ? (
+                  <div className="space-y-4">
+                    <h4 className="font-medium">Connected Installations</h4>
+                    {installations.map((installation: GitHubInstallation) => (
+                      <div key={installation.id} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <Github className="h-4 w-4" />
+                          <div>
+                            <div className="font-medium">{installation.account_login}</div>
+                            <Badge variant="secondary" className="text-xs">
+                              {installation.account_type}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedInstallation(installation.installation_id)}
+                          >
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleRemoveInstallation(installation.installation_id)}
+                            disabled={removeInstallationMutation.isPending}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <Badge className={integrationStatus.github ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
-                    {integrationStatus.github ? "Connected" : "Not Connected"}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-gray-600">
-                  Monitor repository changes automatically with GitHub webhooks.
-                </p>
+                ) : (
+                  <div className="text-center text-muted-foreground py-4">
+                    No GitHub App installations found.
+                  </div>
+                )}
                 
-                <div>
-                  <Label htmlFor="github-token">GitHub Token</Label>
-                  <Input
-                    id="github-token"
-                    type="password"
-                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                    defaultValue={integrationStatus.github ? "••••••••••••••••••••" : ""}
-                  />
-                  <p className="text-sm text-gray-500 mt-1">
-                    Personal access token with repo permissions
-                  </p>
-                </div>
+                <Button 
+                  onClick={handleInstallGitHubApp}
+                  className="w-full"
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Install GitHub App
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
-                <div>
-                  <Label>Webhook URL</Label>
-                  <div className="flex items-center space-x-2">
-                    <Input
-                      value={webhookUrl}
-                      readOnly
-                      className="bg-gray-50"
-                    />
+        {/* Repository Access */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Repository Access</CardTitle>
+            <CardDescription>
+              {selectedInstallation 
+                ? "Repositories accessible by the selected installation."
+                : "Select an installation to view accessible repositories."
+              }
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!selectedInstallation ? (
+              <div className="text-center text-muted-foreground py-8">
+                Select a GitHub installation to view repositories.
+              </div>
+            ) : repositoriesLoading ? (
+              <div className="text-center text-muted-foreground">Loading repositories...</div>
+            ) : repositories && repositories.length > 0 ? (
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {repositories.map((repo: Repository) => (
+                  <div key={repo.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={repo.owner.avatar_url}
+                        alt={repo.owner.login}
+                        className="w-6 h-6 rounded-full"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium truncate">{repo.full_name}</div>
+                        {repo.description && (
+                          <div className="text-sm text-muted-foreground truncate">
+                            {repo.description}
+                          </div>
+                        )}
+                        <Badge variant={repo.private ? "secondary" : "outline"} className="text-xs mt-1">
+                          {repo.private ? "Private" : "Public"}
+                        </Badge>
+                      </div>
+                    </div>
                     <Button
-                      size="icon"
                       variant="outline"
-                      onClick={() => handleCopy(webhookUrl, "webhook")}
+                      size="sm"
+                      onClick={() => handleTestScan(repo.full_name, selectedInstallation)}
+                      disabled={testScanMutation.isPending}
                     >
-                      {copied === "webhook" ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      Test Scan
                     </Button>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Add this URL as a webhook in your GitHub repository settings
-                  </p>
-                </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center text-muted-foreground py-8">
+                No repositories found for this installation.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
-                <div className="flex items-center space-x-2">
-                  <Switch checked={integrationStatus.github} />
-                  <Label>Enable GitHub monitoring</Label>
+      {/* GitHub App Setup Instructions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Setup Instructions</CardTitle>
+          <CardDescription>
+            Follow these steps to set up GitHub App integration for private repository access.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-3">
+            <div className="flex gap-3">
+              <div className="flex-shrink-0 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-medium">
+                1
+              </div>
+              <div>
+                <div className="font-medium">Install the GitHub App</div>
+                <div className="text-sm text-muted-foreground">
+                  Click "Install GitHub App" to authorize the app on your repositories.
                 </div>
-
-                <Button className="w-full">
-                  {integrationStatus.github ? "Update Configuration" : "Connect GitHub"}
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Setup Instructions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex items-start space-x-3">
-                    <div className="w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center text-sm font-medium">
-                      1
-                    </div>
-                    <div>
-                      <p className="font-medium">Create GitHub Token</p>
-                      <p className="text-sm text-gray-600">
-                        Go to GitHub Settings → Developer Settings → Personal Access Tokens
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-start space-x-3">
-                    <div className="w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center text-sm font-medium">
-                      2
-                    </div>
-                    <div>
-                      <p className="font-medium">Configure Webhook</p>
-                      <p className="text-sm text-gray-600">
-                        Add webhook URL to your repository settings with push and pull_request events
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-start space-x-3">
-                    <div className="w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center text-sm font-medium">
-                      3
-                    </div>
-                    <div>
-                      <p className="font-medium">Test Integration</p>
-                      <p className="text-sm text-gray-600">
-                        Make a commit to trigger API Sentinel monitoring
-                      </p>
-                    </div>
-                  </div>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-shrink-0 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-medium">
+                2
+              </div>
+              <div>
+                <div className="font-medium">Select Repositories</div>
+                <div className="text-sm text-muted-foreground">
+                  Choose which repositories the app can access during installation.
                 </div>
-                
-                <Button variant="outline" className="w-full">
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  GitHub Documentation
-                </Button>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-shrink-0 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-medium">
+                3
+              </div>
+              <div>
+                <div className="font-medium">Connect Installation</div>
+                <div className="text-sm text-muted-foreground">
+                  The installation will automatically appear here once connected.
+                </div>
+              </div>
+            </div>
           </div>
-        </TabsContent>
-
-        <TabsContent value="slack">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <MessageSquare className="h-5 w-5" />
-                    <CardTitle>Slack Integration</CardTitle>
-                  </div>
-                  <Badge className={integrationStatus.slack ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
-                    {integrationStatus.slack ? "Connected" : "Not Connected"}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-gray-600">
-                  Get breaking change alerts directly in your Slack channels.
-                </p>
-                
-                <div>
-                  <Label htmlFor="slack-token">Bot Token</Label>
-                  <Input
-                    id="slack-token"
-                    type="password"
-                    placeholder="xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx"
-                    defaultValue={integrationStatus.slack ? "••••••••••••••••••••" : ""}
-                  />
-                  <p className="text-sm text-gray-500 mt-1">
-                    Slack Bot User OAuth Token
-                  </p>
-                </div>
-
-                <div>
-                  <Label htmlFor="slack-channel">Default Channel</Label>
-                  <Input
-                    id="slack-channel"
-                    placeholder="#api-alerts or C1234567890"
-                    defaultValue="#api-alerts"
-                  />
-                  <p className="text-sm text-gray-500 mt-1">
-                    Channel name or ID for alerts
-                  </p>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Switch checked={integrationStatus.slack} />
-                  <Label>Enable Slack notifications</Label>
-                </div>
-
-                <Button className="w-full">
-                  {integrationStatus.slack ? "Update Configuration" : "Connect Slack"}
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Slack App Setup</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    You'll need to create a Slack app and install it to your workspace first.
-                  </AlertDescription>
-                </Alert>
-
-                <div className="space-y-3">
-                  <div className="flex items-start space-x-3">
-                    <div className="w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center text-sm font-medium">
-                      1
-                    </div>
-                    <div>
-                      <p className="font-medium">Create Slack App</p>
-                      <p className="text-sm text-gray-600">
-                        Go to api.slack.com/apps and create a new app
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-start space-x-3">
-                    <div className="w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center text-sm font-medium">
-                      2
-                    </div>
-                    <div>
-                      <p className="font-medium">Add Bot Permissions</p>
-                      <p className="text-sm text-gray-600">
-                        Add chat:write and channels:read scopes
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-start space-x-3">
-                    <div className="w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center text-sm font-medium">
-                      3
-                    </div>
-                    <div>
-                      <p className="font-medium">Install to Workspace</p>
-                      <p className="text-sm text-gray-600">
-                        Install the app and copy the Bot User OAuth Token
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                
-                <Button variant="outline" className="w-full">
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  Slack API Documentation
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="ci">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Code className="h-5 w-5" />
-                    <CardTitle>CI/CD Integration</CardTitle>
-                  </div>
-                  <Badge className={integrationStatus.ci ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
-                    {integrationStatus.ci ? "Active" : "Setup Required"}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-gray-600">
-                  Block deployments with breaking changes by integrating with your CI/CD pipeline.
-                </p>
-
-                <div>
-                  <Label>Validation Endpoint</Label>
-                  <div className="flex items-center space-x-2">
-                    <Input
-                      value={ciValidationUrl}
-                      readOnly
-                      className="bg-gray-50"
-                    />
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      onClick={() => handleCopy(ciValidationUrl, "ci")}
-                    >
-                      {copied === "ci" ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="api-key">API Key</Label>
-                  <Input
-                    id="api-key"
-                    type="password"
-                    placeholder="sk-xxxxxxxxxxxxxxxxxxxx"
-                    defaultValue={integrationStatus.ci ? "••••••••••••••••••••" : ""}
-                  />
-                  <p className="text-sm text-gray-500 mt-1">
-                    API key for CI/CD authentication
-                  </p>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Switch checked={integrationStatus.ci} />
-                  <Label>Enable deployment validation</Label>
-                </div>
-
-                <Button className="w-full">
-                  Generate API Key
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Example CI/CD Scripts</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label>GitHub Actions</Label>
-                  <div className="relative">
-                    <Textarea
-                      readOnly
-                      className="bg-gray-50 font-mono text-sm"
-                      value={`- name: Validate API Changes
-  run: |
-    curl -X POST "${ciValidationUrl}" \\
-      -H "Authorization: Bearer $API_KEY" \\
-      -H "Content-Type: application/json" \\
-      -d '{"projectId": "$PROJECT_ID", "newSchema": @openapi.yaml}'`}
-                      rows={6}
-                    />
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="absolute top-2 right-2"
-                      onClick={() => handleCopy(`- name: Validate API Changes
-  run: |
-    curl -X POST "${ciValidationUrl}" \\
-      -H "Authorization: Bearer $API_KEY" \\
-      -H "Content-Type: application/json" \\
-      -d '{"projectId": "$PROJECT_ID", "newSchema": @openapi.yaml}'`, "github-actions")}
-                    >
-                      {copied === "github-actions" ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-
-                <div>
-                  <Label>Jenkins Pipeline</Label>
-                  <div className="relative">
-                    <Textarea
-                      readOnly
-                      className="bg-gray-50 font-mono text-sm"
-                      value={`stage('API Validation') {
-  steps {
-    sh '''
-      curl -X POST "${ciValidationUrl}" \\
-        -H "Authorization: Bearer ${API_KEY}" \\
-        -H "Content-Type: application/json" \\
-        -d "@openapi.yaml"
-    '''
-  }
-}`}
-                      rows={8}
-                    />
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="absolute top-2 right-2"
-                      onClick={() => handleCopy(`stage('API Validation') {
-  steps {
-    sh '''
-      curl -X POST "${ciValidationUrl}" \\
-        -H "Authorization: Bearer ${API_KEY}" \\
-        -H "Content-Type: application/json" \\
-        -d "@openapi.yaml"
-    '''
-  }
-}`, "jenkins")}
-                    >
-                      {copied === "jenkins" ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-
-                <Button variant="outline" className="w-full">
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  Integration Documentation
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-      </Tabs>
-    </main>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
