@@ -159,7 +159,9 @@ export default function SetupWizard({ open, onOpenChange, onComplete }: SetupWiz
   const canProceed = () => {
     switch (wizardData.step) {
       case 1:
-        return wizardData.projectName.trim() && wizardData.githubRepository.trim();
+        return wizardData.projectName.trim() && 
+               wizardData.githubRepository.trim() && 
+               wizardData.discoveredSpecs.some(spec => spec.selected);
       case 2:
         return true; // Alerts are optional
       case 3:
@@ -250,7 +252,7 @@ export default function SetupWizard({ open, onOpenChange, onComplete }: SetupWiz
                   <div className="flex space-x-2">
                     <Input
                       id="githubRepo"
-                      placeholder="organization/repository"
+                      placeholder="owner/repo or https://github.com/owner/repo"
                       value={wizardData.githubRepository}
                       onChange={(e) =>
                         setWizardData(prev => ({ ...prev, githubRepository: e.target.value }))
@@ -260,38 +262,64 @@ export default function SetupWizard({ open, onOpenChange, onComplete }: SetupWiz
                       type="button"
                       variant="outline"
                       onClick={handleScanRepository}
-                      disabled={scanning}
+                      disabled={scanning || !wizardData.githubRepository.trim()}
                     >
                       <Search className="h-4 w-4 mr-2" />
                       {scanning ? "Scanning..." : "Scan"}
                     </Button>
                   </div>
                   <p className="text-sm text-gray-500 mt-1">
-                    We'll automatically discover OpenAPI specs in this repository
+                    Enhanced detection searches 42+ locations and performs recursive scanning to find all OpenAPI specifications
                   </p>
                 </div>
 
+                {/* Scanning Status */}
+                {scanning && (
+                  <Card className="border-yellow-200 bg-yellow-50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-600 mr-3"></div>
+                        <div className="flex-1">
+                          <h4 className="text-sm font-medium text-yellow-900">
+                            Scanning repository for OpenAPI specifications...
+                          </h4>
+                          <p className="text-xs text-yellow-700 mt-1">
+                            Checking 42+ common paths and performing recursive directory search
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* Repository Scan Results */}
                 {wizardData.discoveredSpecs.length > 0 && (
-                  <Card className="border-blue-200 bg-blue-50">
+                  <Card className="border-green-200 bg-green-50">
                     <CardContent className="p-4">
                       <div className="flex items-start">
-                        <Info className="h-5 w-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0" />
+                        <Info className="h-5 w-5 text-green-600 mt-0.5 mr-3 flex-shrink-0" />
                         <div className="flex-1">
-                          <h4 className="text-sm font-medium text-blue-900">
-                            Found {wizardData.discoveredSpecs.length} OpenAPI specification{wizardData.discoveredSpecs.length === 1 ? '' : 's'}
+                          <h4 className="text-sm font-medium text-green-900">
+                            ✅ Found {wizardData.discoveredSpecs.length} OpenAPI specification{wizardData.discoveredSpecs.length === 1 ? '' : 's'}
                           </h4>
-                          <div className="mt-3 space-y-2">
+                          <p className="text-xs text-green-700 mb-3">
+                            Select the specifications you want to monitor for breaking changes
+                          </p>
+                          <div className="space-y-2">
                             {wizardData.discoveredSpecs.map((spec, index) => (
-                              <label key={spec.filePath} className="flex items-center space-x-2">
+                              <label key={spec.filePath} className="flex items-center space-x-2 cursor-pointer hover:bg-green-100 p-2 rounded">
                                 <Checkbox
                                   checked={spec.selected}
                                   onCheckedChange={() => handleSpecToggle(index)}
                                 />
-                                <span className="text-sm text-gray-700">
-                                  {spec.filePath} - {spec.apiName}
-                                  {spec.version && ` v${spec.version}`}
-                                </span>
+                                <div className="flex-1">
+                                  <span className="text-sm font-medium text-gray-800">
+                                    {spec.apiName}
+                                    {spec.version && ` v${spec.version}`}
+                                  </span>
+                                  <br />
+                                  <span className="text-xs text-gray-600">{spec.filePath}</span>
+                                </div>
                               </label>
                             ))}
                           </div>
@@ -344,31 +372,48 @@ export default function SetupWizard({ open, onOpenChange, onComplete }: SetupWiz
             <div className="space-y-6">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">Review & Complete</h3>
-                <p className="text-gray-600">Review your project configuration</p>
+                <p className="text-gray-600">Review your project configuration and create the monitoring project</p>
               </div>
 
               <Card>
-                <CardContent className="p-4 space-y-3">
+                <CardContent className="p-4 space-y-4">
                   <div>
                     <span className="text-sm font-medium text-gray-500">Project Name:</span>
-                    <p className="text-gray-900">{wizardData.projectName}</p>
+                    <p className="text-gray-900 font-medium">{wizardData.projectName}</p>
                   </div>
                   <div>
                     <span className="text-sm font-medium text-gray-500">Repository:</span>
-                    <p className="text-gray-900">{wizardData.githubRepository}</p>
+                    <p className="text-gray-900 font-medium">{wizardData.githubRepository}</p>
                   </div>
                   <div>
-                    <span className="text-sm font-medium text-gray-500">Monitoring:</span>
-                    <p className="text-gray-900">{wizardData.monitoringFrequency}</p>
+                    <span className="text-sm font-medium text-gray-500">Monitoring Frequency:</span>
+                    <p className="text-gray-900 font-medium capitalize">{wizardData.monitoringFrequency}</p>
                   </div>
                   <div>
-                    <span className="text-sm font-medium text-gray-500">Selected APIs:</span>
-                    <p className="text-gray-900">
-                      {wizardData.discoveredSpecs.filter(spec => spec.selected).length} specification{wizardData.discoveredSpecs.filter(spec => spec.selected).length === 1 ? '' : 's'}
-                    </p>
+                    <span className="text-sm font-medium text-gray-500">Selected API Specifications:</span>
+                    <div className="mt-2 space-y-2">
+                      {wizardData.discoveredSpecs.filter(spec => spec.selected).map((spec) => (
+                        <div key={spec.filePath} className="bg-gray-50 p-2 rounded text-sm">
+                          <span className="font-medium text-gray-800">{spec.apiName}</span>
+                          {spec.version && <span className="text-gray-600"> v{spec.version}</span>}
+                          <br />
+                          <span className="text-xs text-gray-500">{spec.filePath}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
+              
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-blue-900 mb-2">What happens next?</h4>
+                <ul className="text-xs text-blue-800 space-y-1">
+                  <li>• Enhanced monitoring will start automatically using GitHub App authentication</li>
+                  <li>• The system will track changes using 42+ detection paths and recursive scanning</li>
+                  <li>• Breaking changes will be analyzed and alerts sent based on severity</li>
+                  <li>• You can view change history and analysis in the project dashboard</li>
+                </ul>
+              </div>
             </div>
           )}
         </div>
