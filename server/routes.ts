@@ -77,7 +77,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // GitHub repository scanning
+  // GitHub repository scanning with enhanced logging
   app.post("/api/discovery/repository", async (req, res) => {
     try {
       const { repository } = req.body;
@@ -85,11 +85,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Repository is required" });
       }
 
+      console.log(`🔍 Starting repository scan for: ${repository}`);
       const discoveredSpecs = await githubMonitor.scanRepository(repository);
-      res.json({ specs: discoveredSpecs });
-    } catch (error) {
-      console.error("Error scanning repository:", error);
-      res.status(500).json({ message: "Failed to scan repository" });
+      
+      console.log(`📋 Scan results for ${repository}:`, {
+        specsFound: discoveredSpecs.length,
+        specs: discoveredSpecs.map(s => ({ 
+          path: s.filePath, 
+          name: s.apiName,
+          version: s.version 
+        }))
+      });
+
+      res.json({ 
+        specs: discoveredSpecs,
+        specsFound: discoveredSpecs.length,
+        repository,
+        message: discoveredSpecs.length > 0 
+          ? `Found ${discoveredSpecs.length} OpenAPI specifications`
+          : "No OpenAPI specifications found in common locations"
+      });
+    } catch (error: any) {
+      console.error("❌ Error scanning repository:", error);
+      res.status(500).json({ 
+        message: "Failed to scan repository", 
+        error: error.message,
+        specs: [],
+        specsFound: 0,
+        repository: req.body.repository
+      });
     }
   });
 
@@ -126,6 +150,168 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating spec source:", error);
       res.status(400).json({ message: "Invalid spec source data" });
+    }
+  });
+
+  // Enhanced project creation with automatic spec source creation and monitoring setup
+  app.post("/api/projects/setup", async (req, res) => {
+    try {
+      const { name, github_repo, discovered_specs = [], alert_configs = [] } = req.body;
+      
+      console.log(`🏗️ Setting up project: ${name} with ${discovered_specs.length} specs`);
+      
+      // Create the project
+      const project = await storage.createProject({
+        name,
+        github_repo,
+        monitoring_frequency: 'daily',
+        is_active: true
+      });
+
+      console.log(`✅ Project created: ${project.id} - ${project.name}`);
+
+      // Create spec sources for each discovered spec
+      const createdSpecSources = [];
+      for (const spec of discovered_specs) {
+        const specSource = await storage.createSpecSource({
+          project_id: project.id,
+          type: 'github',
+          source_path: spec.filePath,
+          name: spec.apiName || `API from ${spec.filePath}`,
+          is_active: true
+        });
+        createdSpecSources.push(specSource);
+        console.log(`📄 Created spec source: ${specSource.name} at ${specSource.source_path}`);
+
+        // Create initial schema version from discovered content
+        if (spec.content) {
+          const versionHash = githubMonitor.generateHash(JSON.stringify(spec.content));
+          await storage.createSchemaVersion({
+            project_id: project.id,
+            version_hash: versionHash,
+            content: spec.content,
+            commit_sha: null,
+            spec_source_id: specSource.id
+          });
+          console.log(`📋 Created initial schema version for ${specSource.name}`);
+        }
+      }
+
+      // Create alert configurations
+      const createdAlertConfigs = [];
+      for (const alertConfig of alert_configs) {
+        const config = await storage.createAlertConfig({
+          project_id: project.id,
+          channel_type: alertConfig.channel_type,
+          config_data: alertConfig.config_data,
+          is_active: true
+        });
+        createdAlertConfigs.push(config);
+        console.log(`🚨 Created alert config: ${config.channel_type}`);
+      }
+
+      // Setup monitoring for the new project
+      if (createdSpecSources.length > 0) {
+        for (const specSource of createdSpecSources) {
+          await githubMonitor.setupSourceMonitoring(project.id, specSource);
+        }
+        console.log(`🔍 Monitoring setup complete for ${createdSpecSources.length} spec sources`);
+      }
+
+      res.status(201).json({
+        project,
+        specSources: createdSpecSources,
+        alertConfigs: createdAlertConfigs,
+        message: `Project '${project.name}' created successfully with ${createdSpecSources.length} API specs and ${createdAlertConfigs.length} alert configurations`,
+        monitoringActive: createdSpecSources.length > 0
+      });
+
+    } catch (error: any) {
+      console.error("❌ Error setting up project:", error);
+      res.status(400).json({ 
+        message: "Failed to setup project", 
+        error: error.message,
+        details: error.stack
+      });
+    }
+  });
+
+  // Debug endpoint to check project monitoring status
+  app.get("/api/debug/monitoring", async (req, res) => {
+    try {
+      const projects = await storage.getProjects();
+      const debugInfo = [];
+
+      for (const project of projects) {
+        const specSources = await storage.getSpecSources(project.id);
+        const schemaVersions = await storage.getSchemaVersions(project.id);
+        const alertConfigs = await storage.getAlertConfigs(project.id);
+        
+        debugInfo.push({
+          project: {
+            id: project.id,
+            name: project.name,
+            github_repo: project.github_repo,
+            is_active: project.is_active,
+            monitoring_frequency: project.monitoring_frequency
+          },
+          specSources: specSources.map(s => ({
+            id: s.id,
+            source_path: s.source_path,
+            name: s.name,
+            is_active: s.is_active,
+            type: s.type
+          })),
+          schemaVersionsCount: schemaVersions.length,
+          alertConfigsCount: alertConfigs.length,
+          monitoringActive: specSources.filter(s => s.is_active).length > 0,
+          lastUpdate: project.updated_at
+        });
+      }
+
+      res.json({
+        timestamp: new Date().toISOString(),
+        totalProjects: projects.length,
+        activeProjects: projects.filter(p => p.is_active).length,
+        projectDetails: debugInfo,
+        systemStatus: {
+          githubTokenConfigured: !!process.env.GITHUB_TOKEN,
+          webhookSecretConfigured: !!process.env.GITHUB_WEBHOOK_SECRET,
+          databaseConnected: true // Assuming if we got here, DB is working
+        }
+      });
+    } catch (error: any) {
+      console.error("❌ Debug endpoint error:", error);
+      res.status(500).json({ 
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Health check endpoint
+  app.get("/api/health", async (req, res) => {
+    try {
+      const projectsCount = (await storage.getProjects()).length;
+      
+      res.json({
+        status: "healthy",
+        timestamp: new Date().toISOString(),
+        services: {
+          database: "connected",
+          github: process.env.GITHUB_TOKEN ? "configured" : "missing_token",
+          monitoring: projectsCount > 0 ? "active" : "inactive"
+        },
+        stats: {
+          projects: projectsCount
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        status: "unhealthy",
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
     }
   });
 

@@ -300,45 +300,83 @@ export class GitHubMonitor {
     const [owner, repo] = repository.split('/');
     const discoveredSpecs: DiscoveredSpec[] = [];
 
+    console.log(`🔍 Scanning repository ${owner}/${repo} for OpenAPI specs...`);
+
     try {
-      // Search for OpenAPI spec files
-      const searchPatterns = [
-        'openapi.yml',
-        'openapi.yaml', 
+      // Common paths where OpenAPI specs are found
+      const commonPaths = [
+        'openapi.yaml',
+        'openapi.yml', 
         'openapi.json',
-        'swagger.yml',
         'swagger.yaml',
+        'swagger.yml',
         'swagger.json',
-        'spec.yml',
-        'spec.yaml',
-        'spec.json'
+        'api/openapi.yaml',
+        'api/openapi.yml',
+        'api/openapi.json',
+        'docs/openapi.yaml',
+        'docs/openapi.yml', 
+        'docs/openapi.json',
+        'spec/openapi.yaml',
+        'spec/openapi.yml',
+        'spec/openapi.json',
+        'specs/openapi.yaml',
+        'specs/openapi.yml',
+        'specs/openapi.json',
+        'api-spec.yaml',
+        'api-spec.yml',
+        'api.yaml',
+        'api.yml',
+        'api.json'
       ];
 
-      for (const pattern of searchPatterns) {
+      console.log(`📋 Checking ${commonPaths.length} common OpenAPI file paths...`);
+
+      for (const path of commonPaths) {
         try {
-          const searchResult = await this.octokit.search.code({
-            q: `filename:${pattern} repo:${owner}/${repo}`,
+          console.log(`🔍 Checking path: ${path}`);
+          const fileResponse = await this.octokit.repos.getContent({
+            owner,
+            repo,
+            path,
           });
 
-          for (const item of searchResult.data.items) {
-            const fileContent = await this.getFileContent(owner, repo, item.path);
-            if (fileContent) {
-              discoveredSpecs.push({
-                filePath: item.path,
-                apiName: this.extractApiName(fileContent, item.path),
-                version: this.extractVersion(fileContent),
-                content: fileContent
-              });
+          if (!Array.isArray(fileResponse.data) && fileResponse.data.type === 'file') {
+            const content = Buffer.from(fileResponse.data.content, 'base64').toString();
+            let parsedContent;
+
+            try {
+              parsedContent = path.endsWith('.json') 
+                ? JSON.parse(content) 
+                : require('js-yaml').load(content);
+
+              // Validate it's actually an OpenAPI spec
+              if (this.isValidOpenAPISpec(parsedContent)) {
+                console.log(`✅ Found valid OpenAPI spec at: ${path}`);
+                discoveredSpecs.push({
+                  filePath: path,
+                  apiName: this.extractApiName(parsedContent, path),
+                  version: this.extractVersion(parsedContent),
+                  content: parsedContent
+                });
+              } else {
+                console.log(`❌ File at ${path} is not a valid OpenAPI spec`);
+              }
+            } catch (parseError: any) {
+              console.log(`❌ Failed to parse ${path}: ${parseError.message}`);
             }
           }
-        } catch (searchError) {
-          console.log(`No files found for pattern ${pattern}`);
+        } catch (error) {
+          // File doesn't exist, continue to next path
+          console.log(`❌ Path ${path} not found`);
         }
       }
 
+      console.log(`✅ Repository scan complete. Found ${discoveredSpecs.length} OpenAPI specs`);
       return discoveredSpecs;
+
     } catch (error) {
-      console.error(`Error scanning repository ${repository}:`, error);
+      console.error(`❌ Error scanning repository ${repository}:`, error);
       throw error;
     }
   }
@@ -427,16 +465,7 @@ export class GitHubMonitor {
     return content?.info?.version;
   }
 
-  private generateHash(content: string): string {
-    // Simple hash function - in production, use a proper hash library
-    let hash = 0;
-    for (let i = 0; i < content.length; i++) {
-      const char = content.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    return hash.toString();
-  }
+
 
   private calculateSeverity(breakingChanges: any[]): string {
     if (breakingChanges.length === 0) return 'low';
@@ -451,5 +480,34 @@ export class GitHubMonitor {
     if (hasMedium) return 'medium';
     
     return 'low';
+  }
+
+  // Add this helper method to the GitHubMonitor class
+  private isValidOpenAPISpec(content: any): boolean {
+    try {
+      // Check for OpenAPI 3.x
+      if (content.openapi && content.info && content.paths) {
+        return true;
+      }
+      // Check for Swagger 2.x  
+      if (content.swagger && content.info && content.paths) {
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  // Make generateHash public for use in routes
+  public generateHash(content: string): string {
+    // Simple hash function - in production, use a proper hash library
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return hash.toString();
   }
 }

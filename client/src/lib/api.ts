@@ -1,49 +1,105 @@
-import { apiRequest } from "./queryClient";
+// client/src/lib/api.ts
+const API_BASE = '/api';
 
-export const api = {
+class ApiClient {
+  private async request(method: string, url: string, data?: any) {
+    const response = await fetch(`${API_BASE}${url}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: data ? JSON.stringify(data) : undefined,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    return response.json();
+  }
+
   // Projects
-  getProjects: () => fetch("/api/projects").then(res => res.json()),
-  createProject: (data: any) => apiRequest("POST", "/api/projects", data),
-  updateProject: (id: string, data: any) => apiRequest("PUT", `/api/projects/${id}`, data),
-  deleteProject: (id: string) => apiRequest("DELETE", `/api/projects/${id}`),
+  async getProjects() {
+    return this.request('GET', '/projects');
+  }
 
-  // Discovery
-  scanRepository: (repository: string) => 
-    apiRequest("POST", "/api/discovery/repository", { repository }).then(res => res.json()),
-  getDiscoveryReport: (owner: string, repo: string) => 
-    fetch(`/api/discovery/report/${owner}/${repo}`).then(res => res.json()),
+  async createProject(project: any) {
+    return this.request('POST', '/projects', project);
+  }
 
-  // Spec sources
-  getSpecSources: (projectId: string) => 
-    fetch(`/api/projects/${projectId}/specs`).then(res => res.json()),
-  createSpecSource: (projectId: string, data: any) => 
-    apiRequest("POST", `/api/projects/${projectId}/specs`, data),
+  async getProject(id: string) {
+    return this.request('GET', `/projects/${id}`);
+  }
 
-  // Change history
-  getChangeHistory: (projectId: string) => 
-    fetch(`/api/projects/${projectId}/history`).then(res => res.json()),
+  async updateProject(id: string, project: any) {
+    return this.request('PUT', `/projects/${id}`, project);
+  }
 
-  // Schema comparison
-  compareSchemas: (oldSchema: any, newSchema: any) => 
-    apiRequest("POST", "/api/schemas/compare", { oldSchema, newSchema }).then(res => res.json()),
+  async deleteProject(id: string) {
+    return this.request('DELETE', `/projects/${id}`);
+  }
 
-  // Alerts
-  getAlertConfigs: (projectId: string) => 
-    fetch(`/api/projects/${projectId}/alerts`).then(res => res.json()),
-  createAlertConfig: (projectId: string, data: any) => 
-    apiRequest("POST", `/api/projects/${projectId}/alerts`, data),
-  testAlert: (channelType: string, configData: any) => 
-    apiRequest("POST", "/api/alerts/test", { channelType, configData }).then(res => res.json()),
+  // Enhanced project setup with spec sources
+  async setupProject(projectData: any) {
+    return this.request('POST', '/projects/setup', projectData);
+  }
+
+  // Spec Sources
+  async getSpecSources(projectId: string) {
+    return this.request('GET', `/projects/${projectId}/specs`);
+  }
+
+  async createSpecSource(projectId: string, specSource: any) {
+    return this.request('POST', `/projects/${projectId}/specs`, specSource);
+  }
+
+  // Repository Scanning
+  async scanRepository(repository: string) {
+    return this.request('POST', '/discovery/repository', { repository });
+  }
+
+  async getDiscoveryReport(owner: string, repo: string) {
+    return this.request('GET', `/discovery/report/${owner}/${repo}`);
+  }
+
+  // Alert Configs
+  async getAlertConfigs(projectId: string) {
+    return this.request('GET', `/projects/${projectId}/alerts`);
+  }
+
+  async createAlertConfig(projectId: string, alertConfig: any) {
+    return this.request('POST', `/projects/${projectId}/alerts`, alertConfig);
+  }
+
+  async testAlert(channelType: string, configData: any) {
+    return this.request('POST', '/alerts/test', { channelType, configData });
+  }
 
   // Dashboard
-  getDashboardStats: () => 
-    fetch("/api/dashboard/stats").then(res => res.json()),
+  async getDashboardStats() {
+    return this.request('GET', '/dashboard/stats');
+  }
 
-  // Monitoring
-  triggerManualCheck: (projectId: string) => 
-    apiRequest("POST", `/api/projects/${projectId}/monitoring/trigger`),
+  // Schema Comparison
+  async compareSchemas(oldSchema: any, newSchema: any) {
+    return this.request('POST', '/schemas/compare', { oldSchema, newSchema });
+  }
 
-  // CI/CD
-  validateDeployment: (projectId: string, newSchema: any, environment?: string) => 
-    apiRequest("POST", "/api/ci/validate", { projectId, newSchema, environment }).then(res => res.json()),
-};
+  // Change History
+  async getChangeHistory(projectId: string) {
+    return this.request('GET', `/projects/${projectId}/history`);
+  }
+
+  // Manual Monitoring
+  async triggerManualCheck(projectId: string) {
+    return this.request('POST', `/projects/${projectId}/monitoring/trigger`);
+  }
+
+  // Debug endpoint
+  async getMonitoringDebugInfo() {
+    return this.request('GET', '/debug/monitoring');
+  }
+}
+
+export const api = new ApiClient();
