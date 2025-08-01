@@ -307,14 +307,20 @@ export class GitHubMonitor {
         throw new Error(`Invalid GitHub repository URL: ${repository}`);
       }
       [, owner, repo] = match;
-    } else {
+      // Remove .git suffix if present
+      repo = repo.replace(/\.git$/, '');
+    } else if (repository.includes('/')) {
       // Handle owner/repo format
       [owner, repo] = repository.split('/');
+    } else {
+      throw new Error(`Invalid repository format: ${repository}. Expected 'owner/repo' or GitHub URL`);
     }
     
     if (!owner || !repo) {
       throw new Error(`Invalid repository format: ${repository}. Expected 'owner/repo' or GitHub URL`);
     }
+    
+    console.log(`📍 Parsed repository: ${owner}/${repo} from input: ${repository}`);
     
     const discoveredSpecs: DiscoveredSpec[] = [];
 
