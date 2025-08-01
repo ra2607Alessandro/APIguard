@@ -297,12 +297,35 @@ export class GitHubMonitor {
   }
 
   async scanRepository(repository: string): Promise<DiscoveredSpec[]> {
-    const [owner, repo] = repository.split('/');
+    // Handle both full GitHub URLs and owner/repo format
+    let owner: string, repo: string;
+    
+    if (repository.includes('github.com')) {
+      // Extract from full URL like https://github.com/owner/repo
+      const match = repository.match(/github\.com\/([^\/]+)\/([^\/\?#]+)/);
+      if (!match) {
+        throw new Error(`Invalid GitHub repository URL: ${repository}`);
+      }
+      [, owner, repo] = match;
+    } else {
+      // Handle owner/repo format
+      [owner, repo] = repository.split('/');
+    }
+    
+    if (!owner || !repo) {
+      throw new Error(`Invalid repository format: ${repository}. Expected 'owner/repo' or GitHub URL`);
+    }
+    
     const discoveredSpecs: DiscoveredSpec[] = [];
 
     console.log(`🔍 Scanning repository ${owner}/${repo} for OpenAPI specs...`);
 
     try {
+      // Get repository info to determine default branch
+      const repoInfo = await this.octokit.repos.get({ owner, repo });
+      const defaultBranch = repoInfo.data.default_branch;
+      console.log(`📝 Using default branch: ${defaultBranch}`);
+
       // Common paths where OpenAPI specs are found
       const commonPaths = [
         'openapi.yaml',
@@ -334,11 +357,12 @@ export class GitHubMonitor {
 
       for (const path of commonPaths) {
         try {
-          console.log(`🔍 Checking path: ${path}`);
+          console.log(`🔍 Checking path: ${path} in ${owner}/${repo}`);
           const fileResponse = await this.octokit.repos.getContent({
             owner,
             repo,
             path,
+            ref: defaultBranch
           });
 
           if (!Array.isArray(fileResponse.data) && fileResponse.data.type === 'file') {
@@ -366,9 +390,12 @@ export class GitHubMonitor {
               console.log(`❌ Failed to parse ${path}: ${parseError.message}`);
             }
           }
-        } catch (error) {
+        } catch (error: any) {
           // File doesn't exist, continue to next path
-          console.log(`❌ Path ${path} not found`);
+          console.log(`❌ Path ${path} not found: ${error.status || error.message}`);
+          if (error.status === 401) {
+            console.error(`🔑 Authentication failed - check GITHUB_TOKEN permissions`);
+          }
         }
       }
 
