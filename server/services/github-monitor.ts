@@ -3,6 +3,7 @@ import * as cron from "node-cron";
 import type { IStorage } from "../storage";
 import type { SpecSource, MonitoringConfig } from "@shared/schema";
 import * as yaml from 'js-yaml';
+import RepositoryScanner from './repositoryScanner.js';
 
 interface DiscoveredSpec {
   filePath: string;
@@ -15,6 +16,7 @@ export class GitHubMonitor {
   private octokit: Octokit;
   private activeMonitors: Map<string, any> = new Map();
   private cronJobs: Map<string, any> = new Map();
+  private repositoryScanner: RepositoryScanner;
 
   constructor(private storage: IStorage) {
     if (!process.env.GITHUB_TOKEN) {
@@ -24,6 +26,9 @@ export class GitHubMonitor {
     this.octokit = new Octokit({
       auth: process.env.GITHUB_TOKEN,
     });
+
+    // Initialize LLM-based repository scanner
+    this.repositoryScanner = new RepositoryScanner(process.env.GITHUB_TOKEN);
   }
 
   async startMonitoring(): Promise<void> {
@@ -323,154 +328,25 @@ export class GitHubMonitor {
     
     console.log(`📍 Parsed repository: ${owner}/${repo} from input: ${repository}`);
     
-    const discoveredSpecs: DiscoveredSpec[] = [];
-
-    console.log(`🔍 Scanning repository ${owner}/${repo} for OpenAPI specs...`);
-
     try {
-      // Get repository info to determine default branch
-      const repoInfo = await this.octokit.repos.get({ owner, repo });
-      const defaultBranch = repoInfo.data.default_branch;
-      console.log(`📝 Using default branch: ${defaultBranch}`);
+      // Use LLM-based intelligent detection system
+      console.log(`🤖 Starting LLM-based API spec detection for ${owner}/${repo}`);
+      const specInfos = await this.repositoryScanner.detectSpecsWithFallback(owner, repo);
+      
+      // Convert to DiscoveredSpec format
+      const discoveredSpecs: DiscoveredSpec[] = specInfos.map(spec => ({
+        filePath: spec.filePath,
+        apiName: spec.apiName,
+        version: spec.version,
+        content: spec.content
+      }));
 
-      // Comprehensive paths where OpenAPI specs are commonly found
-      const commonPaths = [
-        // Root level files
-        'openapi.yaml',
-        'openapi.yml', 
-        'openapi.json',
-        'swagger.yaml',
-        'swagger.yml',
-        'swagger.json',
-        'api-spec.yaml',
-        'api-spec.yml',
-        'api-spec.json',
-        'api.yaml',
-        'api.yml',
-        'api.json',
-        // API directory
-        'api/openapi.yaml',
-        'api/openapi.yml',
-        'api/openapi.json',
-        'api/swagger.yaml',
-        'api/swagger.yml',
-        'api/swagger.json',
-        'api/api.yaml',
-        'api/api.yml',
-        'api/api.json',
-        // Documentation directories
-        'docs/openapi.yaml',
-        'docs/openapi.yml', 
-        'docs/openapi.json',
-        'docs/swagger.yaml',
-        'docs/swagger.yml',
-        'docs/swagger.json',
-        'docs/api.yaml',
-        'docs/api.yml',
-        'docs/api.json',
-        'documentation/openapi.yaml',
-        'documentation/openapi.yml',
-        'documentation/openapi.json',
-        // Spec directories
-        'spec/openapi.yaml',
-        'spec/openapi.yml',
-        'spec/openapi.json',
-        'spec/swagger.yaml',
-        'spec/swagger.yml',
-        'spec/swagger.json',
-        'specs/openapi.yaml',
-        'specs/openapi.yml',
-        'specs/openapi.json',
-        'specs/swagger.yaml',
-        'specs/swagger.yml',
-        'specs/swagger.json',
-        'specifications/openapi.yaml',
-        'specifications/openapi.yml',
-        'specifications/openapi.json',
-        // Common alternative locations
-        'schema/openapi.yaml',
-        'schema/openapi.yml',
-        'schema/openapi.json',
-        'schemas/openapi.yaml',
-        'schemas/openapi.yml',
-        'schemas/openapi.json',
-        'public/api.yaml',
-        'public/api.yml',
-        'public/api.json',
-        'static/api.yaml',
-        'static/api.yml',
-        'static/api.json',
-        'assets/api.yaml',
-        'assets/api.yml',
-        'assets/api.json'
-      ];
-
-      console.log(`📋 Checking ${commonPaths.length} common OpenAPI file paths...`);
-
-      for (const path of commonPaths) {
-        try {
-          console.log(`🔍 Checking path: ${path} in ${owner}/${repo}`);
-          const fileResponse = await this.octokit.repos.getContent({
-            owner,
-            repo,
-            path,
-            ref: defaultBranch
-          });
-
-          if (!Array.isArray(fileResponse.data) && fileResponse.data.type === 'file') {
-            const content = Buffer.from(fileResponse.data.content, 'base64').toString();
-            let parsedContent;
-
-            try {
-              if (path.endsWith('.json')) {
-                parsedContent = JSON.parse(content);
-              } else {
-                try {
-                  parsedContent = yaml.load(content);
-                } catch (yamlError: any) {
-                  // Fallback: Try to parse as JSON in case it's a JSON file with .yaml extension
-                  console.log(`YAML parsing failed for ${path}, trying JSON fallback: ${yamlError.message}`);
-                  parsedContent = JSON.parse(content);
-                }
-              }
-
-              // Validate it's actually an OpenAPI spec
-              if (this.isValidOpenAPISpec(parsedContent)) {
-                console.log(`✅ Found valid OpenAPI spec at: ${path}`);
-                discoveredSpecs.push({
-                  filePath: path,
-                  apiName: this.extractApiName(parsedContent, path),
-                  version: this.extractVersion(parsedContent),
-                  content: parsedContent
-                });
-              } else {
-                console.log(`❌ File at ${path} is not a valid OpenAPI spec`);
-              }
-            } catch (parseError: any) {
-              console.log(`❌ Failed to parse ${path}: ${parseError.message}`);
-            }
-          }
-        } catch (error: any) {
-          // File doesn't exist, continue to next path
-          console.log(`❌ Path ${path} not found: ${error.status || error.message}`);
-          if (error.status === 401) {
-            console.error(`🔑 Authentication failed - check GITHUB_TOKEN permissions`);
-          }
-        }
-      }
-
-      // If no specs found in common paths, perform recursive search
-      if (discoveredSpecs.length === 0) {
-        console.log(`🔍 No specs found in common paths. Performing recursive search...`);
-        await this.recursiveSearch(owner, repo, defaultBranch, '', discoveredSpecs, 0);
-      }
-
-      console.log(`✅ Repository scan complete. Found ${discoveredSpecs.length} OpenAPI specs`);
+      console.log(`✅ LLM detection found ${discoveredSpecs.length} API specs in ${owner}/${repo}`);
+      
       return discoveredSpecs;
-
-    } catch (error) {
-      console.error(`❌ Error scanning repository ${repository}:`, error);
-      throw error;
+    } catch (error: any) {
+      console.error(`❌ LLM-based detection failed for ${owner}/${repo}:`, error.message);
+      return [];
     }
   }
 

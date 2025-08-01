@@ -584,6 +584,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/discovery/compare-methods - Compare LLM vs Pattern-based detection
+  app.post('/api/discovery/compare-methods', async (req, res) => {
+    try {
+      const { repository } = req.body;
+      
+      if (!repository) {
+        return res.status(400).json({ error: 'Repository is required' });
+      }
+      
+      console.log(`📊 Comparing detection methods for ${repository}...`);
+      
+      // Parse repository
+      let owner: string, repo: string;
+      
+      if (repository.includes('github.com')) {
+        const match = repository.match(/github\.com\/([^\/]+)\/([^\/\?#]+)/);
+        if (!match) {
+          return res.status(400).json({ error: 'Invalid GitHub repository URL' });
+        }
+        [, owner, repo] = match;
+        repo = repo.replace(/\.git$/, '');
+      } else if (repository.includes('/')) {
+        [owner, repo] = repository.split('/');
+      } else {
+        return res.status(400).json({ error: 'Invalid repository format' });
+      }
+      
+      // Use the repositoryScanner's comparison method
+      const { default: RepositoryScanner } = await import('./services/repositoryScanner.js');
+      const repositoryScanner = new RepositoryScanner(process.env.GITHUB_TOKEN!);
+      const comparisonReport = await repositoryScanner.compareDetectionMethods(owner, repo);
+      
+      res.json({
+        repository: `${owner}/${repo}`,
+        timestamp: new Date().toISOString(),
+        comparison: comparisonReport,
+        summary: {
+          llmFound: comparisonReport.llmDetectionResults.length,
+          patternFound: comparisonReport.patternMatchingResults.length,
+          improvement: {
+            additionalSpecs: comparisonReport.improvementMetrics.additionalSpecsFound,
+            processingTime: comparisonReport.improvementMetrics.processingTimeComparison
+          }
+        }
+      });
+    } catch (error: any) {
+      console.error('Error comparing detection methods:', error);
+      res.status(500).json({ error: error.message || 'Failed to compare detection methods' });
+    }
+  });
+
   // Start GitHub monitoring
   await githubMonitor.startMonitoring();
 
