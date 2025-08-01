@@ -161,6 +161,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GitHub webhooks
   app.post("/api/integrations/github", async (req, res) => {
     try {
+      // Verify webhook signature if secret is configured
+      const signature = req.headers['x-hub-signature-256'];
+      if (signature && process.env.GITHUB_WEBHOOK_SECRET) {
+        const crypto = require('crypto');
+        const expectedSignature = 'sha256=' + crypto
+          .createHmac('sha256', process.env.GITHUB_WEBHOOK_SECRET)
+          .update(JSON.stringify(req.body))
+          .digest('hex');
+        
+        if (signature !== expectedSignature) {
+          console.log('Invalid webhook signature');
+          return res.status(401).json({ message: 'Invalid signature' });
+        }
+      }
+
+      console.log('Webhook received:', {
+        action: req.body.action || 'push',
+        repository: req.body.repository?.full_name,
+        commits: req.body.commits?.length || 0,
+        head_commit: req.body.head_commit?.id || 'none'
+      });
+
       await githubMonitor.handleWebhookEvent(req.body);
       res.status(200).json({ message: "Webhook processed" });
     } catch (error) {

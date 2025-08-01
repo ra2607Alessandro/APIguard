@@ -116,31 +116,63 @@ export class GitHubMonitor {
 
   async handleWebhookEvent(payload: any): Promise<void> {
     try {
-      if (payload.action && payload.action !== 'opened' && payload.action !== 'synchronize') {
-        return; // Only process relevant PR events
-      }
-
+      console.log('Processing webhook event:', payload.action || 'push');
+      
       const repository = payload.repository;
-      if (!repository) return;
+      if (!repository) {
+        console.log('No repository in webhook payload');
+        return;
+      }
 
       const owner = repository.owner.login;
       const repo = repository.name;
-      const commitSha = payload.head_commit?.id || payload.pull_request?.head?.sha;
+      
+      // Handle push events
+      if (payload.head_commit || payload.commits) {
+        const commitSha = payload.head_commit?.id;
+        console.log(`Processing push event for ${owner}/${repo}, commit: ${commitSha}`);
+        
+        // Find projects monitoring this repository
+        const projects = await this.storage.getProjects();
+        const relevantProjects = projects.filter(p => 
+          p.github_repo === `${owner}/${repo}` && p.is_active
+        );
 
-      // Find projects monitoring this repository
-      const projects = await this.storage.getProjects();
-      const relevantProjects = projects.filter(p => 
-        p.github_repo === `${owner}/${repo}` && p.is_active
-      );
+        console.log(`Found ${relevantProjects.length} projects monitoring ${owner}/${repo}`);
 
-      for (const project of relevantProjects) {
-        const sources = await this.storage.getSpecSources(project.id);
-        for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
-          await this.checkForChanges(project.id, source, owner, repo, commitSha);
+        for (const project of relevantProjects) {
+          const sources = await this.storage.getSpecSources(project.id);
+          for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
+            console.log(`Checking for changes in ${source.source_path}`);
+            await this.checkForChanges(project.id, source, owner, repo, commitSha);
+          }
+        }
+        return;
+      }
+
+      // Handle PR events
+      if (payload.pull_request && ['opened', 'synchronize', 'reopened'].includes(payload.action)) {
+        const commitSha = payload.pull_request.head.sha;
+        console.log(`Processing PR event for ${owner}/${repo}, commit: ${commitSha}`);
+        
+        // Process PR events (same logic as push events)
+        const projects = await this.storage.getProjects();
+        const relevantProjects = projects.filter(p => 
+          p.github_repo === `${owner}/${repo}` && p.is_active
+        );
+
+        for (const project of relevantProjects) {
+          const sources = await this.storage.getSpecSources(project.id);
+          for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
+            await this.checkForChanges(project.id, source, owner, repo, commitSha);
+          }
         }
       }
+
+      console.log('Webhook processing completed successfully');
     } catch (error) {
       console.error("Error handling webhook event:", error);
+      throw error;
     }
   }
 
@@ -200,9 +232,63 @@ export class GitHubMonitor {
 
       // If we have a previous version, analyze changes
       if (latestVersion) {
-        // This would trigger the breaking change analysis
-        // Implementation would call the OpenAPI analyzer and breaking change rules
         console.log(`Analyzing changes between versions for ${source.source_path}`);
+        
+        try {
+          // Import the required services
+          const { OpenAPIAnalyzer } = await import('./openapi-analyzer');
+          const { BreakingChangeAnalyzer } = await import('./breaking-change-rules');
+          const { AlertService } = await import('./alert-service');
+          
+          const openapiAnalyzer = new OpenAPIAnalyzer();
+          const breakingChangeAnalyzer = new BreakingChangeAnalyzer();
+          const alertService = new AlertService();
+
+          // Compare schemas
+          const comparison = await openapiAnalyzer.compareSchemas(
+            latestVersion.content, 
+            parsedContent
+          );
+          
+          // Analyze for breaking changes
+          const analysis = breakingChangeAnalyzer.analyzeChanges(comparison);
+          
+          console.log(`Analysis complete: ${analysis.breakingChanges.length} breaking, ${analysis.nonBreakingChanges.length} safe changes`);
+          
+          // Store the analysis
+          await this.storage.createChangeAnalysis({
+            project_id: projectId,
+            old_version_id: latestVersion.id,
+            new_version_id: newVersion.id,
+            breaking_changes: analysis.breakingChanges,
+            non_breaking_changes: analysis.nonBreakingChanges,
+            analysis_summary: analysis.summary,
+            severity: this.calculateSeverity(analysis.breakingChanges)
+          });
+
+          // Trigger alerts if there are breaking changes
+          if (analysis.breakingChanges.length > 0) {
+            const project = await this.storage.getProject(projectId);
+            const alertConfigs = await this.storage.getAlertConfigs(projectId);
+            
+            if (project && alertConfigs.length > 0) {
+              await alertService.triggerConfiguredAlerts(
+                projectId,
+                project.name,
+                analysis,
+                alertConfigs
+              );
+              console.log(`🚨 Alerts sent for ${analysis.breakingChanges.length} breaking changes in ${project.name}`);
+            } else {
+              console.log(`⚠️  Breaking changes found but no alert configs for project ${projectId}`);
+            }
+          } else {
+            console.log(`✅ No breaking changes detected in ${source.source_path}`);
+          }
+          
+        } catch (error) {
+          console.error(`Error analyzing changes for ${source.source_path}:`, error);
+        }
       }
 
     } catch (error) {
@@ -350,5 +436,20 @@ export class GitHubMonitor {
       hash = hash & hash; // Convert to 32-bit integer
     }
     return hash.toString();
+  }
+
+  private calculateSeverity(breakingChanges: any[]): string {
+    if (breakingChanges.length === 0) return 'low';
+    
+    const hasCritical = breakingChanges.some(change => change.severity === 'critical');
+    if (hasCritical) return 'critical';
+    
+    const hasHigh = breakingChanges.some(change => change.severity === 'high');
+    if (hasHigh) return 'high';
+    
+    const hasMedium = breakingChanges.some(change => change.severity === 'medium');
+    if (hasMedium) return 'medium';
+    
+    return 'low';
   }
 }
