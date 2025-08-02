@@ -294,6 +294,9 @@ export class GitHubMonitor {
             console.error(`   Error: ${yamlError.message}`);
             console.error(`   Line: ${yamlError.mark?.line || 'unknown'}, Column: ${yamlError.mark?.column || 'unknown'}`);
             console.error(`   Skipping analysis for this file - monitoring continues for other projects`);
+            
+            // Store parsing error in database
+            await this.storeParsingError(source.id, projectId, yamlError.message);
             return; // Skip this file but continue monitoring other projects
           }
         }
@@ -301,6 +304,9 @@ export class GitHubMonitor {
         console.error(`❌ File parsing failed for ${source.source_path}:`);
         console.error(`   Error: ${parseError.message}`);
         console.error(`   Skipping analysis for this file - monitoring continues for other projects`);
+        
+        // Store parsing error in database
+        await this.storeParsingError(source.id, projectId, parseError.message);
         return; // Skip this file but continue monitoring other projects
       }
 
@@ -411,6 +417,9 @@ export class GitHubMonitor {
         } else {
           console.log(`✅ Baseline created for ${source.source_path} with ${analysis.nonBreakingChanges.length} endpoints`);
         }
+
+        // Clear any previous errors and mark successful analysis
+        await this.clearParsingError(source.id, projectId);
         
       } catch (error: any) {
         console.error(`❌ Critical analysis error for ${source.source_path}:`);
@@ -418,6 +427,9 @@ export class GitHubMonitor {
         console.error(`   Type: ${error.constructor.name}`);
         console.error(`   Stack trace:`, error.stack);
         console.error(`   Analysis failed but monitoring continues for other projects`);
+        
+        // Store specific parsing error
+        await this.storeParsingError(source.id, projectId, error.message);
         
         // Log service health status
         console.error(`🏥 Service Health Check:`);
@@ -432,7 +444,43 @@ export class GitHubMonitor {
       console.error(`   Type: ${error.constructor.name}`);
       console.error(`   Monitoring continues for other sources and projects`);
       
+      // Store parsing error information
+      await this.storeParsingError(source.id, projectId, error.message);
+      
       // Don't re-throw to prevent cascading failures
+    }
+  }
+
+  private async storeParsingError(sourceId: string, projectId: string, errorMessage: string): Promise<void> {
+    try {
+      // Update spec source with error information
+      await this.storage.updateSpecSourceError(sourceId, errorMessage);
+      
+      // Update project health status to 'error'
+      await this.storage.updateProjectHealth(projectId, 'error');
+      
+      console.log(`💾 Stored parsing error for source ${sourceId}`);
+    } catch (error: any) {
+      console.error(`Failed to store parsing error:`, error.message);
+    }
+  }
+
+  private async clearParsingError(sourceId: string, projectId: string): Promise<void> {
+    try {
+      // Clear error from spec source and mark successful analysis
+      await this.storage.clearSpecSourceError(sourceId);
+      
+      // Check if all sources are healthy, then update project status
+      const sources = await this.storage.getSpecSources(projectId);
+      const hasErrors = sources.some(s => s.last_error);
+      
+      if (!hasErrors) {
+        await this.storage.updateProjectHealth(projectId, 'healthy');
+      }
+      
+      console.log(`🧹 Cleared parsing error for source ${sourceId}`);
+    } catch (error: any) {
+      console.error(`Failed to clear parsing error:`, error.message);
     }
   }
 

@@ -10,6 +10,7 @@ export const projects = pgTable("projects", {
   github_repo: text("github_repo"),
   monitoring_frequency: text("monitoring_frequency").default('daily'),
   discovery_status: text("discovery_status").default('not_started'),
+  health_status: text("health_status").default('healthy'), // 'healthy', 'degraded', 'error'
   is_active: boolean("is_active").default(true),
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
@@ -21,6 +22,9 @@ export const spec_sources = pgTable("spec_sources", {
   type: text("type").notNull(), // 'github', 'url', 'file'
   source_path: text("source_path").notNull(),
   name: text("name").notNull(),
+  last_error: text("last_error"),
+  error_timestamp: timestamp("error_timestamp"),
+  last_successful_analysis: timestamp("last_successful_analysis"),
   is_active: boolean("is_active").default(true),
   created_at: timestamp("created_at").defaultNow(),
 });

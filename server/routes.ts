@@ -31,11 +31,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Fetch statistics for each project
       const projectsWithStats = await Promise.all(
         projects.map(async (project) => {
-          const stats = await storage.getProjectStats(project.id);
-          return {
-            ...project,
-            stats
-          };
+          try {
+            const stats = await storage.getProjectStats(project.id);
+            return {
+              ...project,
+              stats
+            };
+          } catch (error) {
+            console.error(`Error fetching stats for project ${project.id}:`, error);
+            return {
+              ...project,
+              stats: {
+                apiCount: 0,
+                breakingChanges: 0,
+                safeChanges: 0,
+                lastCheck: null,
+                errorSources: []
+              }
+            };
+          }
         })
       );
       

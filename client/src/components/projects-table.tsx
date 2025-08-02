@@ -5,7 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Eye, Settings, Trash2, MoreHorizontal, Github, FolderOpen } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Eye, Settings, Trash2, MoreHorizontal, Github, FolderOpen, AlertTriangle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
 
@@ -14,6 +15,7 @@ interface Project {
   name: string;
   github_repo: string | null;
   monitoring_frequency: string;
+  health_status?: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -22,6 +24,11 @@ interface Project {
     breakingChanges: number;
     safeChanges: number;
     lastCheck: string | null;
+    errorSources?: Array<{
+      fileName: string;
+      error: string;
+      timestamp: string;
+    }>;
   };
 }
 
@@ -34,18 +41,61 @@ interface ProjectsTableProps {
 export default function ProjectsTable({ projects, onDeleteProject, isDeleting }: ProjectsTableProps) {
   const [deleteProject, setDeleteProject] = useState<Project | null>(null);
 
-  const getStatusBadge = (isActive: boolean) => {
-    return isActive ? (
-      <Badge className="bg-green-100 text-green-800">
-        <div className="w-1.5 h-1.5 bg-green-400 rounded-full mr-1" />
-        Active
-      </Badge>
-    ) : (
-      <Badge variant="secondary">
-        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mr-1" />
-        Paused
-      </Badge>
-    );
+  const getStatusBadge = (project: Project) => {
+    if (!project.is_active) {
+      return (
+        <Badge variant="secondary">
+          <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mr-1" />
+          Paused
+        </Badge>
+      );
+    }
+
+    const hasErrors = project.stats?.errorSources && project.stats.errorSources.length > 0;
+
+    switch (project.health_status) {
+      case 'error':
+        return (
+          <Tooltip>
+            <TooltipTrigger>
+              <Badge className="bg-red-100 text-red-800 cursor-help">
+                <AlertTriangle className="w-3 h-3 mr-1" />
+                Error
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-sm">
+              <div className="space-y-2">
+                <p className="font-medium">Monitoring Errors:</p>
+                {hasErrors ? (
+                  project.stats.errorSources.map((errorSource, idx) => (
+                    <div key={idx} className="text-xs">
+                      <div className="font-medium text-red-600">{errorSource.fileName}</div>
+                      <div className="text-gray-600">{errorSource.error}</div>
+                      <div className="text-gray-400">{formatTimeAgo(errorSource.timestamp)}</div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-gray-600">Project has monitoring issues</p>
+                )}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        );
+      case 'degraded':
+        return (
+          <Badge className="bg-yellow-100 text-yellow-800">
+            <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full mr-1" />
+            Degraded
+          </Badge>
+        );
+      default:
+        return (
+          <Badge className="bg-green-100 text-green-800">
+            <div className="w-1.5 h-1.5 bg-green-400 rounded-full mr-1" />
+            Healthy
+          </Badge>
+        );
+    }
   };
 
   const formatTimeAgo = (dateString: string) => {
@@ -122,7 +172,7 @@ export default function ProjectsTable({ projects, onDeleteProject, isDeleting }:
                       </TableCell>
                       
                       <TableCell>
-                        {getStatusBadge(project.is_active)}
+                        {getStatusBadge(project)}
                       </TableCell>
                       
                       <TableCell className="text-sm text-gray-500">

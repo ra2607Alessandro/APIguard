@@ -41,12 +41,15 @@ export interface IStorage {
   getProject(id: string): Promise<Project | undefined>;
   createProject(project: InsertProject): Promise<Project>;
   updateProject(id: string, project: Partial<InsertProject>): Promise<Project>;
+  updateProjectHealth(id: string, healthStatus: string): Promise<void>;
   deleteProject(id: string): Promise<void>;
 
   // Spec source methods
   getSpecSources(projectId: string): Promise<SpecSource[]>;
   createSpecSource(specSource: InsertSpecSource): Promise<SpecSource>;
   updateSpecSource(id: string, specSource: Partial<InsertSpecSource>): Promise<SpecSource>;
+  updateSpecSourceError(id: string, errorMessage: string): Promise<void>;
+  clearSpecSourceError(id: string): Promise<void>;
 
   // Environment methods
   getEnvironments(projectId: string): Promise<Environment[]>;
@@ -141,6 +144,13 @@ export class DatabaseStorage implements IStorage {
     return updatedProject;
   }
 
+  async updateProjectHealth(id: string, healthStatus: string): Promise<void> {
+    await db
+      .update(projects)
+      .set({ health_status: healthStatus, updated_at: new Date() })
+      .where(eq(projects.id, id));
+  }
+
   async deleteProject(id: string): Promise<void> {
     await db.delete(projects).where(eq(projects.id, id));
   }
@@ -169,6 +179,27 @@ export class DatabaseStorage implements IStorage {
       .where(eq(spec_sources.id, id))
       .returning();
     return updatedSpecSource;
+  }
+
+  async updateSpecSourceError(id: string, errorMessage: string): Promise<void> {
+    await db
+      .update(spec_sources)
+      .set({ 
+        last_error: errorMessage, 
+        error_timestamp: new Date()
+      })
+      .where(eq(spec_sources.id, id));
+  }
+
+  async clearSpecSourceError(id: string): Promise<void> {
+    await db
+      .update(spec_sources)
+      .set({ 
+        last_error: null, 
+        error_timestamp: null,
+        last_successful_analysis: new Date()
+      })
+      .where(eq(spec_sources.id, id));
   }
 
   // Environment methods
@@ -362,6 +393,11 @@ export class DatabaseStorage implements IStorage {
     breakingChanges: number;
     safeChanges: number;
     lastCheck: Date | null;
+    errorSources?: Array<{
+      fileName: string;
+      error: string;
+      timestamp: string;
+    }>;
   }> {
     // Count active spec sources for this project
     const [apiCountResult] = await db
@@ -395,11 +431,38 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(schema_versions.created_at))
       .limit(1);
 
+    // Get spec sources with errors
+    let errorSourcesFormatted: Array<{
+      fileName: string;
+      error: string;
+      timestamp: string;
+    }> = [];
+
+    try {
+      const errorSources = await db
+        .select()
+        .from(spec_sources)
+        .where(and(
+          eq(spec_sources.project_id, projectId),
+          sql`${spec_sources.last_error} IS NOT NULL`
+        ));
+
+      errorSourcesFormatted = errorSources.map(source => ({
+        fileName: source.source_path?.split('/').pop() || 'Unknown file',
+        error: source.last_error || 'Unknown error',
+        timestamp: source.error_timestamp?.toISOString() || new Date().toISOString(),
+      }));
+    } catch (error) {
+      console.error('Error fetching error sources:', error);
+      // Continue without error sources if query fails
+    }
+
     return {
       apiCount: apiCountResult?.count || 0,
       breakingChanges: breakingChangesResult?.count || 0,
       safeChanges: safeChangesResult?.count || 0,
       lastCheck: lastCheckResult?.created_at || null,
+      errorSources: errorSourcesFormatted,
     };
   }
 }
