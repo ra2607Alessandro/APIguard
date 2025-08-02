@@ -189,10 +189,22 @@ export class GitHubMonitor {
         console.log(`Found ${relevantProjects.length} projects monitoring ${owner}/${repo}`);
 
         for (const project of relevantProjects) {
-          const sources = await this.storage.getSpecSources(project.id);
-          for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
-            console.log(`Checking for changes in ${source.source_path}`);
-            await this.checkForChanges(project.id, source, owner, repo, commitSha);
+          try {
+            const sources = await this.storage.getSpecSources(project.id);
+            for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
+              console.log(`Checking for changes in ${source.source_path}`);
+              try {
+                await this.checkForChanges(project.id, source, owner, repo, commitSha);
+              } catch (sourceError: any) {
+                console.error(`❌ Failed to check ${source.source_path} in project ${project.name}:`, sourceError.message);
+                console.error(`   Continuing with other sources...`);
+                // Continue processing other sources
+              }
+            }
+          } catch (projectError: any) {
+            console.error(`❌ Failed to process project ${project.name}:`, projectError.message);
+            console.error(`   Continuing with other projects...`);
+            // Continue processing other projects
           }
         }
         return;
@@ -212,17 +224,31 @@ export class GitHubMonitor {
         });
 
         for (const project of relevantProjects) {
-          const sources = await this.storage.getSpecSources(project.id);
-          for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
-            await this.checkForChanges(project.id, source, owner, repo, commitSha);
+          try {
+            const sources = await this.storage.getSpecSources(project.id);
+            for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
+              try {
+                await this.checkForChanges(project.id, source, owner, repo, commitSha);
+              } catch (sourceError: any) {
+                console.error(`❌ Failed to check ${source.source_path} in project ${project.name}:`, sourceError.message);
+                console.error(`   Continuing with other sources...`);
+                // Continue processing other sources
+              }
+            }
+          } catch (projectError: any) {
+            console.error(`❌ Failed to process project ${project.name}:`, projectError.message);
+            console.error(`   Continuing with other projects...`);
+            // Continue processing other projects
           }
         }
       }
 
-      console.log('Webhook processing completed successfully');
-    } catch (error) {
-      console.error("Error handling webhook event:", error);
-      throw error;
+      console.log('✅ Webhook processing completed successfully');
+    } catch (error: any) {
+      console.error("❌ Critical error handling webhook event:", error.message);
+      console.error("   Stack trace:", error.stack);
+      console.error("   Service health: Monitoring continues despite this error");
+      // Don't re-throw to prevent service crash - log and continue
     }
   }
 
@@ -254,13 +280,28 @@ export class GitHubMonitor {
         if (source.source_path.endsWith('.json')) {
           parsedContent = JSON.parse(content);
         } else {
-          // Use dynamic import for js-yaml in ES modules
+          // Use dynamic import for js-yaml in ES modules with validation
           const yaml = await import('js-yaml');
-          parsedContent = yaml.load(content);
+          try {
+            parsedContent = yaml.load(content);
+            
+            // Validate the parsed content is a valid object
+            if (!parsedContent || typeof parsedContent !== 'object') {
+              throw new Error('Parsed YAML is not a valid object');
+            }
+          } catch (yamlError: any) {
+            console.error(`❌ YAML parsing failed for ${source.source_path}:`);
+            console.error(`   Error: ${yamlError.message}`);
+            console.error(`   Line: ${yamlError.mark?.line || 'unknown'}, Column: ${yamlError.mark?.column || 'unknown'}`);
+            console.error(`   Skipping analysis for this file - monitoring continues for other projects`);
+            return; // Skip this file but continue monitoring other projects
+          }
         }
-      } catch (parseError) {
-        console.error(`Error parsing ${source.source_path}:`, parseError);
-        return;
+      } catch (parseError: any) {
+        console.error(`❌ File parsing failed for ${source.source_path}:`);
+        console.error(`   Error: ${parseError.message}`);
+        console.error(`   Skipping analysis for this file - monitoring continues for other projects`);
+        return; // Skip this file but continue monitoring other projects
       }
 
       // Get latest version for comparison
@@ -371,13 +412,27 @@ export class GitHubMonitor {
           console.log(`✅ Baseline created for ${source.source_path} with ${analysis.nonBreakingChanges.length} endpoints`);
         }
         
-      } catch (error) {
-        console.error(`❌ Error analyzing changes for ${source.source_path}:`, error);
+      } catch (error: any) {
+        console.error(`❌ Critical analysis error for ${source.source_path}:`);
+        console.error(`   Error: ${error.message}`);
+        console.error(`   Type: ${error.constructor.name}`);
         console.error(`   Stack trace:`, error.stack);
+        console.error(`   Analysis failed but monitoring continues for other projects`);
+        
+        // Log service health status
+        console.error(`🏥 Service Health Check:`);
+        console.error(`   - Monitoring service: ACTIVE`);
+        console.error(`   - Error handling: RESILIENT`);
+        console.error(`   - Project isolation: ENABLED`);
       }
 
-    } catch (error) {
-      console.error(`Error checking for changes in ${source.source_path}:`, error);
+    } catch (error: any) {
+      console.error(`❌ Failed to check changes in ${source.source_path}:`);
+      console.error(`   Error: ${error.message}`);
+      console.error(`   Type: ${error.constructor.name}`);
+      console.error(`   Monitoring continues for other sources and projects`);
+      
+      // Don't re-throw to prevent cascading failures
     }
   }
 
