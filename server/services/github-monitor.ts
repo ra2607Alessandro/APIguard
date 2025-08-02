@@ -251,9 +251,13 @@ export class GitHubMonitor {
       let parsedContent;
 
       try {
-        parsedContent = source.source_path.endsWith('.json') 
-          ? JSON.parse(content) 
-          : require('js-yaml').load(content);
+        if (source.source_path.endsWith('.json')) {
+          parsedContent = JSON.parse(content);
+        } else {
+          // Use dynamic import for js-yaml in ES modules
+          const yaml = await import('js-yaml');
+          parsedContent = yaml.load(content);
+        }
       } catch (parseError) {
         console.error(`Error parsing ${source.source_path}:`, parseError);
         return;
@@ -285,7 +289,7 @@ export class GitHubMonitor {
         console.log(`Analyzing changes between versions for ${source.source_path}`);
         
         try {
-          // Import the required services
+          // Import the required services with error handling
           const { OpenAPIAnalyzer } = await import('./openapi-analyzer');
           const { BreakingChangeAnalyzer } = await import('./breaking-change-rules');
           const { AlertService } = await import('./alert-service');
