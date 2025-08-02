@@ -146,7 +146,7 @@ export class GitHubMonitor {
           repo,
           name: 'web',
           config: {
-            url: `${process.env.API_URL || 'http://localhost:5000'}/api/integrations/github`,
+            url: `https://${process.env.REPLIT_DEV_DOMAIN || process.env.API_URL || 'localhost:5000'}/api/integrations/github`,
             content_type: 'json',
             secret: process.env.GITHUB_WEBHOOK_SECRET || 'default-secret',
           },
