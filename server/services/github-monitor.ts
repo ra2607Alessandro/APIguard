@@ -267,6 +267,12 @@ export class GitHubMonitor {
       const latestVersion = await this.storage.getLatestSchemaVersion(source.id);
       const versionHash = this.generateHash(JSON.stringify(parsedContent));
 
+      console.log(`🔍 Pipeline state for ${source.source_path}:`);
+      console.log(`  - Latest version exists: ${!!latestVersion}`);
+      console.log(`  - Latest version hash: ${latestVersion?.version_hash || 'none'}`);
+      console.log(`  - New content hash: ${versionHash}`);
+      console.log(`  - Content changed: ${!latestVersion || latestVersion.version_hash !== versionHash}`);
+
       // Check if content has changed
       if (latestVersion && latestVersion.version_hash === versionHash) {
         console.log(`No changes detected in ${source.source_path}`);
@@ -284,65 +290,90 @@ export class GitHubMonitor {
 
       console.log(`New version created for ${source.source_path}: ${newVersion.id}`);
 
-      // If we have a previous version, analyze changes
-      if (latestVersion) {
-        console.log(`Analyzing changes between versions for ${source.source_path}`);
-        
-        try {
-          // Import the required services with error handling
-          const { OpenAPIAnalyzer } = await import('./openapi-analyzer');
-          const { BreakingChangeAnalyzer } = await import('./breaking-change-rules');
-          const { AlertService } = await import('./alert-service');
-          
-          const openapiAnalyzer = new OpenAPIAnalyzer();
-          const breakingChangeAnalyzer = new BreakingChangeAnalyzer();
-          const alertService = new AlertService();
+      console.log(`📊 Analysis decision for ${source.source_path}:`);
+      console.log(`  - Has previous version: ${!!latestVersion}`);
+      console.log(`  - Previous version ID: ${latestVersion?.id || 'none'}`);
+      console.log(`  - Will run analysis: YES (always run analysis)`);
 
-          // Compare schemas
-          const comparison = await openapiAnalyzer.compareSchemas(
+      // Always run analysis - either compare with previous version or treat as baseline
+      console.log(`🔬 Starting analysis for ${source.source_path}`);
+      
+      try {
+        // Import the required services with error handling
+        const { OpenAPIAnalyzer } = await import('./openapi-analyzer');
+        const { BreakingChangeAnalyzer } = await import('./breaking-change-rules');
+        const { AlertService } = await import('./alert-service');
+        
+        const openapiAnalyzer = new OpenAPIAnalyzer();
+        const breakingChangeAnalyzer = new BreakingChangeAnalyzer();
+        const alertService = new AlertService();
+
+        let comparison;
+        let analysisType: string;
+
+        if (latestVersion) {
+          // Compare with previous version
+          console.log(`  - Comparing versions: ${latestVersion.id} → ${newVersion.id}`);
+          comparison = await openapiAnalyzer.compareSchemas(
             latestVersion.content, 
             parsedContent
           );
-          
-          // Analyze for breaking changes
-          const analysis = breakingChangeAnalyzer.analyzeChanges(comparison);
-          
-          console.log(`Analysis complete: ${analysis.breakingChanges.length} breaking, ${analysis.nonBreakingChanges.length} safe changes`);
-          
-          // Store the analysis
-          await this.storage.createChangeAnalysis({
-            project_id: projectId,
-            old_version_id: latestVersion.id,
-            new_version_id: newVersion.id,
-            breaking_changes: analysis.breakingChanges,
-            non_breaking_changes: analysis.nonBreakingChanges,
-            analysis_summary: analysis.summary,
-            severity: this.calculateSeverity(analysis.breakingChanges)
-          });
-
-          // Trigger alerts if there are breaking changes
-          if (analysis.breakingChanges.length > 0) {
-            const project = await this.storage.getProject(projectId);
-            const alertConfigs = await this.storage.getAlertConfigs(projectId);
-            
-            if (project && alertConfigs.length > 0) {
-              await alertService.triggerConfiguredAlerts(
-                projectId,
-                project.name,
-                analysis,
-                alertConfigs
-              );
-              console.log(`🚨 Alerts sent for ${analysis.breakingChanges.length} breaking changes in ${project.name}`);
-            } else {
-              console.log(`⚠️  Breaking changes found but no alert configs for project ${projectId}`);
-            }
-          } else {
-            console.log(`✅ No breaking changes detected in ${source.source_path}`);
-          }
-          
-        } catch (error) {
-          console.error(`Error analyzing changes for ${source.source_path}:`, error);
+          analysisType = 'version_comparison';
+        } else {
+          // First version - treat as all new endpoints (baseline)
+          console.log(`  - First version analysis: treating as baseline`);
+          comparison = await openapiAnalyzer.compareSchemas(
+            {}, // Empty schema as baseline
+            parsedContent
+          );
+          analysisType = 'baseline_creation';
         }
+        
+        // Analyze for breaking changes
+        const analysis = breakingChangeAnalyzer.analyzeChanges(comparison);
+        
+        console.log(`📊 Analysis complete (${analysisType}): ${analysis.breakingChanges.length} breaking, ${analysis.nonBreakingChanges.length} safe changes`);
+        
+        // Store the analysis
+        await this.storage.createChangeAnalysis({
+          project_id: projectId,
+          old_version_id: latestVersion?.id || null,
+          new_version_id: newVersion.id,
+          breaking_changes: analysis.breakingChanges,
+          non_breaking_changes: analysis.nonBreakingChanges,
+          analysis_summary: analysis.summary,
+          severity: this.calculateSeverity(analysis.breakingChanges)
+        });
+
+        // For baseline creation, only alert on actual breaking changes (not new endpoints)
+        const shouldAlert = latestVersion ? 
+          analysis.breakingChanges.length > 0 : 
+          analysis.breakingChanges.some(change => !change.description.includes('new endpoint'));
+
+        if (shouldAlert && analysis.breakingChanges.length > 0) {
+          const project = await this.storage.getProject(projectId);
+          const alertConfigs = await this.storage.getAlertConfigs(projectId);
+          
+          if (project && alertConfigs.length > 0) {
+            await alertService.triggerConfiguredAlerts(
+              projectId,
+              project.name,
+              analysis,
+              alertConfigs
+            );
+            console.log(`🚨 Alerts sent for ${analysis.breakingChanges.length} breaking changes in ${project.name}`);
+          } else {
+            console.log(`⚠️  Breaking changes found but no alert configs for project ${projectId}`);
+          }
+        } else if (latestVersion) {
+          console.log(`✅ No breaking changes detected in ${source.source_path}`);
+        } else {
+          console.log(`✅ Baseline created for ${source.source_path} with ${analysis.nonBreakingChanges.length} endpoints`);
+        }
+        
+      } catch (error) {
+        console.error(`❌ Error analyzing changes for ${source.source_path}:`, error);
+        console.error(`   Stack trace:`, error.stack);
       }
 
     } catch (error) {
