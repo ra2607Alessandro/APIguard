@@ -329,8 +329,8 @@ export class GitHubMonitor {
     console.log(`📍 Parsed repository: ${owner}/${repo} from input: ${repository}`);
     
     try {
-      // Use LLM-based intelligent detection system
-      console.log(`🤖 Starting LLM-based API spec detection for ${owner}/${repo}`);
+      // Use LLM-based intelligent detection as the primary method
+      console.log(`🤖 Starting intelligent API spec detection for ${owner}/${repo}`);
       const specInfos = await this.repositoryScanner.detectSpecsWithFallback(owner, repo);
       
       // Convert to DiscoveredSpec format
@@ -341,11 +341,11 @@ export class GitHubMonitor {
         content: spec.content
       }));
 
-      console.log(`✅ LLM detection found ${discoveredSpecs.length} API specs in ${owner}/${repo}`);
+      console.log(`✅ Intelligent detection found ${discoveredSpecs.length} API specs in ${owner}/${repo}`);
       
       return discoveredSpecs;
     } catch (error: any) {
-      console.error(`❌ LLM-based detection failed for ${owner}/${repo}:`, error.message);
+      console.error(`❌ Intelligent detection failed for ${owner}/${repo}:`, error.message);
       return [];
     }
   }
@@ -420,19 +420,7 @@ export class GitHubMonitor {
     }
   }
 
-  private extractApiName(content: any, filePath: string): string {
-    if (content?.info?.title) {
-      return content.info.title;
-    }
-    
-    // Fallback to file path
-    const fileName = filePath.split('/').pop()?.replace(/\.(yml|yaml|json)$/, '') || 'Unknown API';
-    return fileName.charAt(0).toUpperCase() + fileName.slice(1);
-  }
 
-  private extractVersion(content: any): string | undefined {
-    return content?.info?.version;
-  }
 
 
 
@@ -567,11 +555,17 @@ export class GitHubMonitor {
   }
 
   private extractApiName(content: any, filePath: string): string {
-    return content.info?.title || `API from ${filePath}`;
+    if (content?.info?.title) {
+      return content.info.title;
+    }
+    
+    // Fallback to file path
+    const fileName = filePath.split('/').pop()?.replace(/\.(yml|yaml|json)$/, '') || 'Unknown API';
+    return fileName.charAt(0).toUpperCase() + fileName.slice(1);
   }
 
   private extractVersion(content: any): string | undefined {
-    return content.info?.version;
+    return content?.info?.version;
   }
 
   // Make generateHash public for use in routes

@@ -61,8 +61,9 @@ export class RepositoryScanner {
 
       return results;
     } catch (error: any) {
-      console.error(`❌ LLM scan failed for ${owner}/${repo}, falling back to pattern matching:`, error.message);
-      return await this.patternBasedDetection(owner, repo, ref);
+      console.error(`❌ LLM scan failed for ${owner}/${repo}:`, error.message);
+      // No fallback - LLM is now the primary detection method
+      return [];
     }
   }
 
@@ -247,20 +248,11 @@ export class RepositoryScanner {
   }
 
   /**
-   * Main entry point with fallback strategy
+   * Main entry point - LLM-based detection as primary method
    */
   async detectSpecsWithFallback(owner: string, repo: string): Promise<SpecInfo[]> {
-    try {
-      // Try LLM detection first
-      if (process.env.LLM_ENABLED !== 'false') {
-        return await this.scanRepositoryForSpecs(owner, repo);
-      }
-    } catch (error) {
-      console.warn('LLM detection failed, falling back to pattern matching', { error });
-    }
-    
-    // Fallback to pattern-based system
-    return await this.patternBasedDetection(owner, repo, 'HEAD');
+    // Use LLM detection as the main approach
+    return await this.scanRepositoryForSpecs(owner, repo);
   }
 
   /**

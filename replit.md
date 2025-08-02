@@ -2,9 +2,9 @@
 
 ## Overview
 
-API Sentinel is a comprehensive web application that monitors GitHub repositories for API changes and detects breaking changes before they hit production. The system automatically analyzes OpenAPI specifications, provides intelligent alerts for potentially breaking changes, and integrates seamlessly with CI/CD workflows to prevent risky deployments.
+API Sentinel is a comprehensive web application that monitors GitHub repositories for API changes and detects breaking changes before they hit production. The system uses AI-powered intelligent detection to automatically discover OpenAPI specifications, provides intelligent alerts for potentially breaking changes, and integrates seamlessly with CI/CD workflows to prevent risky deployments.
 
-The application serves as a hands-off monitoring system that continuously tracks API changes, classifies them as breaking or non-breaking, and provides visual dashboards for change tracking and risk assessment.
+The application serves as a hands-off monitoring system that continuously tracks API changes using LLM-based content analysis, classifies them as breaking or non-breaking, and provides visual dashboards for change tracking and risk assessment.
 
 ## User Preferences
 
@@ -35,6 +35,8 @@ Preferred communication style: Simple, everyday language.
 
 ### Core Services
 - **GitHub Monitor**: Automated repository scanning and change detection using GitHub API
+- **LLM Spec Detector**: AI-powered intelligent API specification detection using OpenAI GPT-4o-mini
+- **Repository Scanner**: Two-stage detection system (file filtering + LLM content analysis)
 - **Breaking Change Analyzer**: Rule-based system for classifying API changes by severity
 - **Alert Service**: Multi-channel notification system supporting Slack, email, and webhooks
 - **OpenAPI Analyzer**: Schema comparison and validation using Swagger Parser
