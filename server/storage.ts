@@ -84,6 +84,14 @@ export interface IStorage {
     safeChanges: number;
     last24h: number;
   }>;
+
+  // Project statistics
+  getProjectStats(projectId: string): Promise<{
+    apiCount: number;
+    breakingChanges: number;
+    safeChanges: number;
+    lastCheck: Date | null;
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -345,6 +353,53 @@ export class DatabaseStorage implements IStorage {
       breakingChanges: breakingChangesResult?.count || 0,
       safeChanges: safeChangesResult?.count || 0,
       last24h: last24hResult?.count || 0,
+    };
+  }
+
+  // Project statistics
+  async getProjectStats(projectId: string): Promise<{
+    apiCount: number;
+    breakingChanges: number;
+    safeChanges: number;
+    lastCheck: Date | null;
+  }> {
+    // Count active spec sources for this project
+    const [apiCountResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(spec_sources)
+      .where(and(eq(spec_sources.project_id, projectId), eq(spec_sources.is_active, true)));
+
+    // Count breaking changes for this project
+    const [breakingChangesResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(change_analyses)
+      .where(and(
+        eq(change_analyses.project_id, projectId),
+        sql`${change_analyses.severity} IN ('critical', 'high')`
+      ));
+
+    // Count safe changes for this project
+    const [safeChangesResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(change_analyses)
+      .where(and(
+        eq(change_analyses.project_id, projectId),
+        sql`${change_analyses.severity} IN ('low', 'medium')`
+      ));
+
+    // Get last check time from most recent schema version
+    const [lastCheckResult] = await db
+      .select({ created_at: schema_versions.created_at })
+      .from(schema_versions)
+      .where(eq(schema_versions.project_id, projectId))
+      .orderBy(desc(schema_versions.created_at))
+      .limit(1);
+
+    return {
+      apiCount: apiCountResult?.count || 0,
+      breakingChanges: breakingChangesResult?.count || 0,
+      safeChanges: safeChangesResult?.count || 0,
+      lastCheck: lastCheckResult?.created_at || null,
     };
   }
 }

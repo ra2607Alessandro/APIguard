@@ -54,7 +54,12 @@ export class GitHubMonitor {
     const project = await this.storage.getProject(projectId);
     if (!project || !project.github_repo) return;
 
-    const [owner, repo] = project.github_repo.split('/');
+    const { owner, repo } = this.parseRepositoryUrl(project.github_repo);
+    if (!owner || !repo) {
+      console.error(`Invalid repository format: ${project.github_repo}`);
+      return;
+    }
+    
     const monitorKey = `${projectId}-${source.id}`;
 
     // Setup webhook if not exists
@@ -87,6 +92,41 @@ export class GitHubMonitor {
       case 'weekly': return '0 0 * * 0';
       default: return '0 0 * * *';
     }
+  }
+
+  private parseRepositoryUrl(repoUrl: string): { owner: string; repo: string } {
+    // Handle different formats:
+    // "owner/repo"
+    // "https://github.com/owner/repo"
+    // "https://github.com/owner/repo.git"
+    
+    if (!repoUrl) return { owner: '', repo: '' };
+    
+    // Clean the URL
+    let cleanUrl = repoUrl.trim();
+    
+    // Remove .git suffix if present
+    if (cleanUrl.endsWith('.git')) {
+      cleanUrl = cleanUrl.slice(0, -4);
+    }
+    
+    // Extract owner/repo from different formats
+    if (cleanUrl.includes('github.com')) {
+      // Full GitHub URL format
+      const match = cleanUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (match) {
+        return { owner: match[1], repo: match[2] };
+      }
+    } else if (cleanUrl.includes('/') && !cleanUrl.includes('://')) {
+      // Simple owner/repo format
+      const [owner, repo] = cleanUrl.split('/');
+      if (owner && repo) {
+        return { owner, repo };
+      }
+    }
+    
+    console.warn(`Could not parse repository URL: ${repoUrl}`);
+    return { owner: '', repo: '' };
   }
 
   async ensureWebhook(owner: string, repo: string): Promise<void> {
@@ -140,9 +180,11 @@ export class GitHubMonitor {
         
         // Find projects monitoring this repository
         const projects = await this.storage.getProjects();
-        const relevantProjects = projects.filter(p => 
-          p.github_repo === `${owner}/${repo}` && p.is_active
-        );
+        const relevantProjects = projects.filter(p => {
+          if (!p.github_repo || !p.is_active) return false;
+          const parsed = this.parseRepositoryUrl(p.github_repo);
+          return parsed.owner === owner && parsed.repo === repo;
+        });
 
         console.log(`Found ${relevantProjects.length} projects monitoring ${owner}/${repo}`);
 
@@ -163,9 +205,11 @@ export class GitHubMonitor {
         
         // Process PR events (same logic as push events)
         const projects = await this.storage.getProjects();
-        const relevantProjects = projects.filter(p => 
-          p.github_repo === `${owner}/${repo}` && p.is_active
-        );
+        const relevantProjects = projects.filter(p => {
+          if (!p.github_repo || !p.is_active) return false;
+          const parsed = this.parseRepositoryUrl(p.github_repo);
+          return parsed.owner === owner && parsed.repo === repo;
+        });
 
         for (const project of relevantProjects) {
           const sources = await this.storage.getSpecSources(project.id);

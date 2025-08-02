@@ -23,11 +23,23 @@ const openapiAnalyzer = new OpenAPIAnalyzer();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
-  // Project routes
+  // Project routes with statistics
   app.get("/api/projects", async (req, res) => {
     try {
       const projects = await storage.getProjects();
-      res.json(projects);
+      
+      // Fetch statistics for each project
+      const projectsWithStats = await Promise.all(
+        projects.map(async (project) => {
+          const stats = await storage.getProjectStats(project.id);
+          return {
+            ...project,
+            stats
+          };
+        })
+      );
+      
+      res.json(projectsWithStats);
     } catch (error) {
       console.error("Error fetching projects:", error);
       res.status(500).json({ message: "Failed to fetch projects" });

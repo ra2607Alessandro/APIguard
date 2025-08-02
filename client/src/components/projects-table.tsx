@@ -17,6 +17,12 @@ interface Project {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  stats?: {
+    apiCount: number;
+    breakingChanges: number;
+    safeChanges: number;
+    lastCheck: string | null;
+  };
 }
 
 interface ProjectsTableProps {
@@ -46,18 +52,7 @@ export default function ProjectsTable({ projects, onDeleteProject, isDeleting }:
     return formatDistanceToNow(new Date(dateString), { addSuffix: true });
   };
 
-  const getApiCount = () => {
-    // This would typically come from API data with proper joins
-    return Math.floor(Math.random() * 5) + 1;
-  };
-
-  const getChangesCounts = () => {
-    // This would typically come from API data with proper joins
-    return {
-      breaking: Math.floor(Math.random() * 3),
-      safe: Math.floor(Math.random() * 8) + 1,
-    };
-  };
+  // Remove fake data functions - using real data from API
 
   return (
     <>
@@ -90,9 +85,6 @@ export default function ProjectsTable({ projects, onDeleteProject, isDeleting }:
                 </TableRow>
               ) : (
                 projects.map((project) => {
-                  const apiCount = getApiCount();
-                  const changes = getChangesCounts();
-                  
                   return (
                     <TableRow key={project.id} className="hover:bg-gray-50">
                       <TableCell>
@@ -122,7 +114,7 @@ export default function ProjectsTable({ projects, onDeleteProject, isDeleting }:
                       
                       <TableCell>
                         <div>
-                          <div className="text-sm text-gray-900">{apiCount} API{apiCount === 1 ? '' : 's'}</div>
+                          <div className="text-sm text-gray-900">{project.stats?.apiCount || 0} API{(project.stats?.apiCount || 0) === 1 ? '' : 's'}</div>
                           <div className="text-sm text-gray-500">
                             {project.monitoring_frequency} monitoring
                           </div>
@@ -134,22 +126,29 @@ export default function ProjectsTable({ projects, onDeleteProject, isDeleting }:
                       </TableCell>
                       
                       <TableCell className="text-sm text-gray-500">
-                        {formatTimeAgo(project.updated_at)}
+                        {project.stats?.lastCheck ? (
+                          <div>
+                            <div>{formatTimeAgo(project.stats.lastCheck)}</div>
+                            <div className="text-xs text-gray-400">ago</div>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">Never checked</span>
+                        )}
                       </TableCell>
                       
                       <TableCell>
                         <div className="flex space-x-2">
-                          {changes.breaking > 0 && (
+                          {(project.stats?.breakingChanges || 0) > 0 && (
                             <Badge variant="destructive" className="text-xs">
-                              {changes.breaking} Breaking
+                              {project.stats?.breakingChanges} Breaking
                             </Badge>
                           )}
-                          {changes.safe > 0 && (
+                          {(project.stats?.safeChanges || 0) > 0 && (
                             <Badge className="bg-green-100 text-green-800 text-xs">
-                              {changes.safe} Safe
+                              {project.stats?.safeChanges} Safe
                             </Badge>
                           )}
-                          {changes.breaking === 0 && changes.safe === 0 && (
+                          {(project.stats?.breakingChanges || 0) === 0 && (project.stats?.safeChanges || 0) === 0 && (
                             <span className="text-sm text-gray-500">No changes</span>
                           )}
                         </div>
