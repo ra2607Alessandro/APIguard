@@ -3,6 +3,7 @@ import * as cron from "node-cron";
 import type { IStorage } from "../storage";
 import type { SpecSource, MonitoringConfig } from "@shared/schema";
 import * as yaml from 'js-yaml';
+import * as crypto from 'crypto';
 import RepositoryScanner from './repositoryScanner.js';
 
 interface DiscoveredSpec {
@@ -280,24 +281,25 @@ export class GitHubMonitor {
         if (source.source_path.endsWith('.json')) {
           parsedContent = JSON.parse(content);
         } else {
-          // Use dynamic import for js-yaml in ES modules with validation
-          const yaml = await import('js-yaml');
-          try {
-            parsedContent = yaml.load(content);
-            
-            // Validate the parsed content is a valid object
-            if (!parsedContent || typeof parsedContent !== 'object') {
-              throw new Error('Parsed YAML is not a valid object');
-            }
-          } catch (yamlError: any) {
+          // Enhanced YAML processing with validation
+          const validation = this.validateYamlStructure(content);
+          
+          if (!validation.isValid) {
             console.error(`❌ YAML parsing failed for ${source.source_path}:`);
-            console.error(`   Error: ${yamlError.message}`);
-            console.error(`   Line: ${yamlError.mark?.line || 'unknown'}, Column: ${yamlError.mark?.column || 'unknown'}`);
+            console.error(`   Error: ${validation.error}`);
             console.error(`   Skipping analysis for this file - monitoring continues for other projects`);
             
             // Store parsing error in database
-            await this.storeParsingError(source.id, projectId, yamlError.message);
+            await this.storeParsingError(source.id, projectId, validation.error || 'Unknown YAML error');
             return; // Skip this file but continue monitoring other projects
+          }
+          
+          // Use cleaned content for parsing
+          parsedContent = yaml.load(validation.cleanedContent!);
+          
+          // Validate the parsed content is a valid object
+          if (!parsedContent || typeof parsedContent !== 'object') {
+            throw new Error('Parsed YAML is not a valid object');
           }
         }
       } catch (parseError: any) {
@@ -312,7 +314,7 @@ export class GitHubMonitor {
 
       // Get latest version for comparison
       const latestVersion = await this.storage.getLatestSchemaVersion(source.id);
-      const versionHash = this.generateHash(JSON.stringify(parsedContent));
+      const versionHash = this.generateHash(JSON.stringify(parsedContent), projectId, source.id);
 
       console.log(`🔍 Pipeline state for ${source.source_path}:`);
       console.log(`  - Latest version exists: ${!!latestVersion}`);
@@ -326,8 +328,8 @@ export class GitHubMonitor {
         return;
       }
 
-      // Create new schema version
-      const newVersion = await this.storage.createSchemaVersion({
+      // Create new schema version with transaction handling
+      const newVersion = await this.storage.createSchemaVersionWithTransaction({
         project_id: projectId,
         version_hash: versionHash,
         content: parsedContent,
@@ -750,15 +752,41 @@ export class GitHubMonitor {
     return content?.info?.version;
   }
 
-  // Make generateHash public for use in routes
-  public generateHash(content: string): string {
-    // Simple hash function - in production, use a proper hash library
-    let hash = 0;
-    for (let i = 0; i < content.length; i++) {
-      const char = content.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+  // Add YAML structure validation
+  private validateYamlStructure(content: string): { isValid: boolean; cleanedContent?: string; error?: string } {
+    try {
+      // Clean common YAML issues (extra spaces, indentation)
+      const lines = content.split('\n');
+      const cleanedLines = lines.map(line => {
+        // Remove excessive leading whitespace but maintain relative indentation
+        if (line.trim().length === 0) return '';
+        const leadingSpaces = line.match(/^(\s*)/)?.[1].length || 0;
+        if (leadingSpaces > 8) {
+          // Likely malformed indentation, reduce to reasonable level
+          const normalizedIndent = Math.floor(leadingSpaces / 4) * 2;
+          return ' '.repeat(normalizedIndent) + line.trim();
+        }
+        return line;
+      });
+      
+      const cleanedContent = cleanedLines.join('\n');
+      
+      // Validate basic YAML structure
+      yaml.load(cleanedContent);
+      
+      return { isValid: true, cleanedContent };
+    } catch (error: any) {
+      return {
+        isValid: false,
+        error: `YAML parsing failed: ${error.message}${error.mark ? ` at line ${error.mark.line + 1}, column ${error.mark.column + 1}` : ''}`
+      };
     }
-    return hash.toString();
+  }
+
+  // Make generateHash public for use in routes
+  public generateHash(content: string, projectId?: string, sourceId?: string): string {
+    const contextualContent = `${projectId || ''}:${sourceId || ''}:${content}`;
+    // Use crypto.createHash('sha256') instead of simple hash
+    return crypto.createHash('sha256').update(contextualContent).digest('hex');
   }
 }

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, json, boolean, integer, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, json, boolean, integer, serial, unique } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -25,6 +25,8 @@ export const spec_sources = pgTable("spec_sources", {
   last_error: text("last_error"),
   error_timestamp: timestamp("error_timestamp"),
   last_successful_analysis: timestamp("last_successful_analysis"),
+  processing_status: text("processing_status").default('idle'), // 'idle', 'processing', 'error'
+  processing_started_at: timestamp("processing_started_at"),
   is_active: boolean("is_active").default(true),
   created_at: timestamp("created_at").defaultNow(),
 });
@@ -40,13 +42,20 @@ export const environments = pgTable("environments", {
 export const schema_versions = pgTable("schema_versions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   project_id: varchar("project_id").references(() => projects.id).notNull(),
-  version_hash: text("version_hash").unique().notNull(),
+  version_hash: text("version_hash").notNull(),
   content: json("content").notNull(),
   commit_sha: text("commit_sha"),
   spec_source_id: varchar("spec_source_id").references(() => spec_sources.id).notNull(),
   environment_id: varchar("environment_id").references(() => environments.id),
   created_at: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  // Add compound unique constraint in table definition
+  projectSourceHashUnique: unique("schema_versions_project_source_hash_unique").on(
+    table.project_id,
+    table.spec_source_id,
+    table.version_hash
+  ),
+}));
 
 export const change_analyses = pgTable("change_analyses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

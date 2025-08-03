@@ -1,0 +1,105 @@
+# API Sentinel Critical System Fixes - Implementation Plan
+
+## Problem Summary
+The API monitoring system has 3 critical issues preventing reliable operation:
+
+1. **Database Hash Collision (BLOCKING)**: Global unique constraint on `version_hash` prevents multiple projects from monitoring the same API spec file
+2. **YAML Parsing Failures**: Malformed YAML from GitHub repos crashes the analysis pipeline  
+3. **Race Conditions**: No transaction handling causes duplicate processing and data inconsistency
+
+## Implementation Plan - Execute in Order
+
+### PHASE 1: Fix Database Schema (CRITICAL - DO FIRST)
+
+**File: Create new migration `migrations/002_fix_hash_uniqueness.sql`**
+```sql
+-- Remove global unique constraint that causes collisions
+ALTER TABLE schema_versions DROP CONSTRAINT IF EXISTS schema_versions_version_hash_unique;
+
+-- Add project+source scoped uniqueness instead  
+ALTER TABLE schema_versions ADD CONSTRAINT schema_versions_project_source_hash_unique 
+    UNIQUE (project_id, spec_source_id, version_hash);
+```
+
+**File: `shared/schema.ts`** 
+- Line 43: Remove `.unique()` from `version_hash: text("version_hash").unique().notNull()`
+- Change to: `version_hash: text("version_hash").notNull()`
+- Add compound unique constraint in table definition
+
+**File: `server/services/github-monitor.ts`**
+- Lines 754-763: Enhance `generateHash()` method to include project context:
+```typescript
+public generateHash(content: string, projectId?: string, sourceId?: string): string {
+  const contextualContent = `${projectId || ''}:${sourceId || ''}:${content}`;
+  // Use crypto.createHash('sha256') instead of simple hash
+}
+```
+
+### PHASE 2: Enhanced YAML Processing & Error Recovery
+
+**File: `server/services/github-monitor.ts`**
+- Lines 283-301: Add YAML validation before parsing:
+```typescript
+// Add YAML structure validation
+private validateYamlStructure(content: string): { isValid: boolean; cleanedContent?: string; error?: string } {
+  // Clean common YAML issues (extra spaces, indentation)
+  // Validate basic YAML structure
+  // Return cleaned content or specific error
+}
+```
+
+- Lines 292-300: Enhance error handling to continue processing other files
+- Add detailed error reporting with line/column information
+- Store parsing errors without stopping the entire pipeline
+
+**File: `server/services/openapi-analyzer.ts`**
+- Lines 40-62: Add content validation before SwaggerParser.validate()
+- Pre-validate the parsed object has required OpenAPI structure
+- Better error messages for malformed specs
+
+### PHASE 3: Transaction Handling & Race Condition Prevention
+
+**File: `server/storage.ts`**
+- Add transaction wrapper methods:
+```typescript
+async createSchemaVersionWithTransaction(schemaVersion: InsertSchemaVersion): Promise<SchemaVersion> {
+  return await db.transaction(async (tx) => {
+    // Check for existing version
+    // Create new version
+    // Handle conflicts gracefully
+  });
+}
+```
+
+**File: `server/services/github-monitor.ts`**
+- Lines 330-336: Wrap version creation in transaction
+- Lines 163-253: Add processing lock to prevent duplicate webhook processing
+- Add webhook deduplication by commit SHA + source ID
+
+### PHASE 4: Enhanced Monitoring & Health Tracking
+
+**File: `server/storage.ts`**
+- Enhance `getProjectStats()` to include parsing error details
+- Add error summary and health status aggregation
+
+**File: `shared/schema.ts`**
+- Add `processing_status` field to prevent concurrent processing:
+```typescript
+processing_status: text("processing_status").default('idle'), // 'idle', 'processing', 'error'
+processing_started_at: timestamp("processing_started_at"),
+```
+
+## Expected Outcomes
+- ✅ Multiple projects can monitor same API specs without database conflicts
+- ✅ YAML parsing errors don't crash the monitoring pipeline
+- ✅ Concurrent webhooks don't create duplicate analysis records
+- ✅ Better error reporting and system resilience
+- ✅ Graceful degradation when individual files fail
+
+## Implementation Priority
+1. **Phase 1 (Database)** - MUST be done first, blocking all multi-project functionality
+2. **Phase 2 (YAML)** - Fixes immediate parsing failures seen in logs  
+3. **Phase 3 (Transactions)** - Prevents data corruption from race conditions
+4. **Phase 4 (Monitoring)** - Improves observability and debugging
+
+Execute these changes in order. Test each phase thoroughly before proceeding to the next.

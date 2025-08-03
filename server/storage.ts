@@ -59,6 +59,7 @@ export interface IStorage {
   getSchemaVersions(projectId: string): Promise<SchemaVersion[]>;
   getLatestSchemaVersion(specSourceId: string): Promise<SchemaVersion | undefined>;
   createSchemaVersion(schemaVersion: InsertSchemaVersion): Promise<SchemaVersion>;
+  createSchemaVersionWithTransaction(schemaVersion: InsertSchemaVersion): Promise<SchemaVersion>;
 
   // Change analysis methods
   getChangeAnalyses(projectId: string): Promise<ChangeAnalysis[]>;
@@ -244,6 +245,32 @@ export class DatabaseStorage implements IStorage {
       .values(schemaVersion)
       .returning();
     return newVersion;
+  }
+
+  async createSchemaVersionWithTransaction(schemaVersion: InsertSchemaVersion): Promise<SchemaVersion> {
+    return await db.transaction(async (tx) => {
+      // Check for existing version with same hash
+      const existing = await tx
+        .select()
+        .from(schema_versions)
+        .where(and(
+          eq(schema_versions.project_id, schemaVersion.project_id),
+          eq(schema_versions.spec_source_id, schemaVersion.spec_source_id),
+          eq(schema_versions.version_hash, schemaVersion.version_hash)
+        ));
+
+      if (existing.length > 0) {
+        // Return existing version if found
+        return existing[0];
+      }
+
+      // Create new version
+      const [newSchemaVersion] = await tx
+        .insert(schema_versions)
+        .values(schemaVersion)
+        .returning();
+      return newSchemaVersion;
+    });
   }
 
   // Change analysis methods

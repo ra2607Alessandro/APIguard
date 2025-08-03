@@ -37,8 +37,34 @@ interface SchemaChange {
 }
 
 export class OpenAPIAnalyzer {
+  private isValidOpenAPIStructure(schema: any): boolean {
+    if (!schema || typeof schema !== 'object') {
+      return false;
+    }
+    
+    // Check for required OpenAPI fields
+    if (!schema.openapi && !schema.swagger) {
+      return false;
+    }
+    
+    // Basic structure validation
+    if (!schema.info || typeof schema.info !== 'object') {
+      return false;
+    }
+    
+    return true;
+  }
   async compareSchemas(oldSchema: any, newSchema: any): Promise<SchemaComparison> {
     try {
+      // Pre-validate the parsed object has required OpenAPI structure
+      if (!this.isValidOpenAPIStructure(newSchema)) {
+        throw new Error('New schema does not have valid OpenAPI structure');
+      }
+      
+      if (Object.keys(oldSchema).length > 0 && !this.isValidOpenAPIStructure(oldSchema)) {
+        throw new Error('Old schema does not have valid OpenAPI structure');
+      }
+
       // Parse and validate schemas
       const oldParsed = await SwaggerParser.validate(oldSchema);
       const newParsed = await SwaggerParser.validate(newSchema);
