@@ -61,7 +61,7 @@ export const change_analyses = pgTable("change_analyses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   project_id: varchar("project_id").references(() => projects.id).notNull(),
   old_version_id: varchar("old_version_id").references(() => schema_versions.id),
-  new_version_id: varchar("new_version_id").references(() => schema_versions.id).notNull(),
+  new_version_id: varchar("new_version_id").references(() => schema_versions.id), // Remove .notNull()
   breaking_changes: json("breaking_changes").notNull(),
   non_breaking_changes: json("non_breaking_changes").notNull(),
   analysis_summary: text("analysis_summary"),

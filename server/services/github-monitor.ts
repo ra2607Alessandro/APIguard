@@ -287,11 +287,14 @@ export class GitHubMonitor {
           if (!validation.isValid) {
             console.error(`❌ YAML parsing failed for ${source.source_path}:`);
             console.error(`   Error: ${validation.error}`);
-            console.error(`   Skipping analysis for this file - monitoring continues for other projects`);
+            console.error(`   Treating as CRITICAL breaking change - triggering alerts`);
+            
+            // Create analysis record for parsing failure
+            await this.createParsingFailureAnalysis(projectId, source, validation.error || 'Unknown YAML error', commitSha);
             
             // Store parsing error in database
             await this.storeParsingError(source.id, projectId, validation.error || 'Unknown YAML error');
-            return; // Skip this file but continue monitoring other projects
+            return; // Return after handling parsing failure properly
           }
           
           // Use cleaned content for parsing
@@ -305,11 +308,14 @@ export class GitHubMonitor {
       } catch (parseError: any) {
         console.error(`❌ File parsing failed for ${source.source_path}:`);
         console.error(`   Error: ${parseError.message}`);
-        console.error(`   Skipping analysis for this file - monitoring continues for other projects`);
+        console.error(`   Treating as CRITICAL breaking change - triggering alerts`);
+        
+        // Create analysis record for parsing failure
+        await this.createParsingFailureAnalysis(projectId, source, parseError.message, commitSha);
         
         // Store parsing error in database
         await this.storeParsingError(source.id, projectId, parseError.message);
-        return; // Skip this file but continue monitoring other projects
+        return; // Return after handling parsing failure properly
       }
 
       // Get latest version for comparison
@@ -450,6 +456,66 @@ export class GitHubMonitor {
       await this.storeParsingError(source.id, projectId, error.message);
       
       // Don't re-throw to prevent cascading failures
+    }
+  }
+
+  private async createParsingFailureAnalysis(
+    projectId: string, 
+    source: SpecSource, 
+    errorMessage: string, 
+    commitSha?: string
+  ): Promise<void> {
+    try {
+      // Create a parsing failure analysis
+      const breakingChanges = [{
+        type: 'parsing_failure',
+        severity: 'critical',
+        path: source.source_path,
+        description: `YAML/JSON parsing failed: ${errorMessage}`,
+        impact: 'API specification is unparseable, making the API contract unusable for consumers',
+        details: errorMessage
+      }];
+
+      // Create analysis record
+      const analysis = await this.storage.createChangeAnalysis({
+        project_id: projectId,
+        old_version_id: null,
+        new_version_id: null, // No version created due to parsing failure
+        breaking_changes: breakingChanges,
+        non_breaking_changes: [],
+        analysis_summary: `Critical parsing failure in ${source.source_path}: ${errorMessage}`,
+        severity: 'critical'
+      });
+
+      console.log(`🚨 Created critical parsing failure analysis: ${analysis.id}`);
+
+      // Trigger alerts for this critical failure
+      const project = await this.storage.getProject(projectId);
+      const alertConfigs = await this.storage.getAlertConfigs(projectId);
+      
+      if (project && alertConfigs.length > 0) {
+        const { AlertService } = await import('./alert-service');
+        const alertService = new AlertService();
+        
+        await alertService.triggerConfiguredAlerts(
+          projectId,
+          project.name,
+          {
+            breakingChanges,
+            nonBreakingChanges: [],
+            summary: `CRITICAL: API specification parsing failed - ${errorMessage}`
+          },
+          alertConfigs
+        );
+        
+        console.log(`🚨 CRITICAL alerts sent for parsing failure in ${project.name}`);
+      } else {
+        console.log(`⚠️  CRITICAL parsing failure but no alert configs for project ${projectId}`);
+      }
+
+    } catch (error: any) {
+      console.error(`❌ Failed to create parsing failure analysis:`, error.message);
+      // Don't re-throw - we want to continue monitoring other projects
     }
   }
 

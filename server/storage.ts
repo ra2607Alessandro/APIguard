@@ -291,9 +291,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createChangeAnalysis(analysis: InsertChangeAnalysis): Promise<ChangeAnalysis> {
+    // Allow null version IDs for parsing failures
+    const analysisData = {
+      ...analysis,
+      old_version_id: analysis.old_version_id || null,
+      new_version_id: analysis.new_version_id || null
+    };
+    
     const [newAnalysis] = await db
       .insert(change_analyses)
-      .values(analysis)
+      .values(analysisData)
       .returning();
     return newAnalysis;
   }
