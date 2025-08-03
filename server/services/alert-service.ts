@@ -2,9 +2,40 @@ import { WebClient } from "@slack/web-api";
 import * as nodemailer from "nodemailer";
 import type { AlertConfig } from "@shared/schema";
 
+/**
+ * API Sentinel Alert Service
+ * 
+ * Notification Setup Guide:
+ * 
+ * Slack Integration Options:
+ * 1. Bot API (Preferred): Requires SLACK_BOT_TOKEN with 'chat:write' or 'chat:write.public' scope
+ *    - Configure: { "channel": "C097MKQMQLS" } or { "channel": "#general" }
+ *    - Features: Rich formatting, interactive blocks, better error handling
+ * 
+ * 2. Incoming Webhooks: Use Slack webhook URLs for simpler setup
+ *    - Configure: { "webhookUrl": "https://hooks.slack.com/services/..." }
+ *    - Features: Simple setup, no app installation required
+ * 
+ * 3. Hybrid (Recommended): Combine both for maximum reliability
+ *    - Configure: { "channel": "C097MKQMQLS", "webhookUrl": "https://hooks.slack.com/...", "fallback": true }
+ *    - Features: Bot API with webhook fallback on failure
+ * 
+ * Other Channels:
+ * - Email: Requires SMTP_HOST, SMTP_USER, SMTP_PASS environment variables
+ * - Generic Webhooks: Any HTTP endpoint accepting JSON payloads
+ * - GitHub: Create comments on PRs (requires GitHub integration)
+ */
+
 interface AlertTestResult {
   success: boolean;
   message: string;
+  details?: any;
+}
+
+interface SlackConfig {
+  channel?: string;
+  webhookUrl?: string;
+  fallback?: boolean;
 }
 
 export class AlertService {
@@ -15,10 +46,34 @@ export class AlertService {
     // Initialize Slack client if token is provided
     if (process.env.SLACK_BOT_TOKEN) {
       this.slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
+      this.validateSlackScope();
     }
 
     // Initialize email transporter
     this.setupEmailTransporter();
+  }
+
+  private async validateSlackScope(): Promise<void> {
+    if (!this.slackClient) return;
+    
+    try {
+      const authResult = await this.slackClient.auth.test();
+      const scopes = authResult.response_metadata?.scopes as string[] || [];
+      
+      const hasWriteScope = scopes.includes('chat:write') || scopes.includes('chat:write.public');
+      
+      if (!hasWriteScope) {
+        throw new Error(
+          `Slack Bot Token missing required scope. ` +
+          `Found scopes: ${scopes.join(', ')}. ` +
+          `Required: 'chat:write' or 'chat:write.public'. ` +
+          `Please update your Slack App permissions and reinstall to your workspace.`
+        );
+      }
+    } catch (error: any) {
+      console.error('Slack scope validation failed:', error.message);
+      // Don't throw here to allow fallback to webhooks
+    }
   }
 
   private setupEmailTransporter(): void {
@@ -34,7 +89,7 @@ export class AlertService {
     };
 
     if (emailConfig.auth.user && emailConfig.auth.pass) {
-      this.emailTransporter = nodemailer.createTransporter(emailConfig);
+      this.emailTransporter = nodemailer.createTransport(emailConfig);
     }
   }
 
@@ -62,7 +117,7 @@ export class AlertService {
     try {
       switch (config.channel_type) {
         case 'slack':
-          await this.sendSlackMessage(config.config_data, message);
+          await this.sendSlackAlert(config.config_data, message);
           break;
         case 'email':
           await this.sendEmail(config.config_data, message);
@@ -82,23 +137,110 @@ export class AlertService {
     }
   }
 
-  private async sendSlackMessage(configData: any, message: string): Promise<void> {
+  private async sendSlackAlert(configData: any, message: string): Promise<void> {
+    const { channel, webhookUrl, fallback = true } = configData;
+
+    // If both channel and webhookUrl provided, try Bot API first, fallback to webhook
+    if (channel && webhookUrl && fallback) {
+      try {
+        await this.retry(() => this.sendSlackBotMessage(channel, message));
+        return;
+      } catch (error: any) {
+        console.warn(`Bot API failed, falling back to webhook:`, error.message);
+        await this.retry(() => this.sendSlackWebhook(webhookUrl, message));
+        return;
+      }
+    }
+
+    // If only channel exists, attempt Bot API
+    if (channel && !webhookUrl) {
+      await this.retry(() => this.sendSlackBotMessage(channel, message));
+      return;
+    }
+
+    // If only webhookUrl exists, send webhook directly
+    if (webhookUrl && !channel) {
+      await this.retry(() => this.sendSlackWebhook(webhookUrl, message));
+      return;
+    }
+
+    throw new Error("Either channel or webhookUrl must be provided in Slack config");
+  }
+
+  private async sendSlackBotMessage(channel: string, message: string): Promise<void> {
     if (!this.slackClient) {
       throw new Error("Slack client not initialized - SLACK_BOT_TOKEN required");
     }
 
-    const channel = configData.channel || process.env.SLACK_CHANNEL_ID;
-    if (!channel) {
+    const effectiveChannel = channel || process.env.SLACK_CHANNEL_ID;
+    if (!effectiveChannel) {
       throw new Error("Slack channel not specified");
     }
 
     const blocks = this.createSlackBlocks(message);
 
-    await this.slackClient.chat.postMessage({
-      channel,
+    const response = await this.slackClient.chat.postMessage({
+      channel: effectiveChannel,
       text: "API Sentinel Alert",
       blocks,
     });
+
+    if (!response.ok) {
+      throw new Error(`Slack Bot API failed: ${response.error}`);
+    }
+  }
+
+  private async sendSlackWebhook(webhookUrl: string, message: string): Promise<void> {
+    if (!webhookUrl) {
+      throw new Error("Webhook URL not specified");
+    }
+
+    const lines = message.split('\n');
+    const firstLine = lines[0];
+    const blocks = this.createSlackBlocks(message);
+
+    const payload = {
+      text: firstLine,
+      blocks: blocks
+    };
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'API-Sentinel-Alert'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Slack webhook failed with status ${response.status}`);
+    }
+  }
+
+  private async retry<T>(fn: () => Promise<T>, attempts: number = 3, backoff: number[] = [1000, 2000, 4000]): Promise<T> {
+    let lastError: Error;
+    
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await fn();
+      } catch (error: any) {
+        lastError = error;
+        
+        // Don't retry on certain errors
+        if (error.code === 'slack_webapi_platform_error' && 
+            (error.data?.error === 'missing_scope' || error.data?.error === 'not_in_channel')) {
+          throw error;
+        }
+        
+        if (i < attempts - 1) {
+          const delay = backoff[i] || backoff[backoff.length - 1];
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    throw lastError!;
   }
 
   private createSlackBlocks(message: string): any[] {
@@ -251,6 +393,42 @@ If you received this, your ${channelType} integration is working correctly.
 Test performed at: ${new Date().toISOString()}`;
 
     try {
+      if (channelType === 'slack') {
+        const slackConfig = configData as SlackConfig;
+        const { channel, webhookUrl } = slackConfig;
+        
+        // If both channel and webhookUrl provided, test both
+        if (channel && webhookUrl) {
+          const results: any = { bot: null, webhook: null };
+          
+          // Test Bot API
+          try {
+            await this.sendSlackBotMessage(channel, testMessage);
+            results.bot = { success: true, message: "Bot API test successful" };
+          } catch (error: any) {
+            results.bot = { success: false, message: error.message };
+          }
+          
+          // Test Webhook
+          try {
+            await this.sendSlackWebhook(webhookUrl, testMessage);
+            results.webhook = { success: true, message: "Webhook test successful" };
+          } catch (error: any) {
+            results.webhook = { success: false, message: error.message };
+          }
+          
+          const overallSuccess = results.bot.success || results.webhook.success;
+          return {
+            success: overallSuccess,
+            message: overallSuccess 
+              ? "At least one Slack method is working" 
+              : "Both Slack methods failed",
+            details: results
+          };
+        }
+      }
+
+      // Standard single-method test
       const testConfig: AlertConfig = {
         id: 'test',
         project_id: 'test',

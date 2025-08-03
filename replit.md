@@ -6,6 +6,22 @@ API Sentinel is a comprehensive web application that monitors GitHub repositorie
 
 The application serves as a hands-off monitoring system that continuously tracks API changes using LLM-based content analysis, classifies them as breaking or non-breaking, and provides visual dashboards for change tracking and risk assessment.
 
+## Recent Changes (August 2025)
+
+### Critical YAML Parsing Error Handling Fixed
+- YAML parsing failures now trigger CRITICAL breaking change alerts instead of being silently ignored
+- Analysis records created for all parsing failures with detailed error tracking
+- Projects properly show "error" health status when API specifications are malformed
+- System maintains resilience while providing immediate user notification
+
+### Enhanced Slack Integration System
+- Implemented unified Slack alert system supporting both Bot API and webhook methods
+- Added scope validation for Slack Bot tokens with clear error messages
+- Smart fallback mechanism: Bot API → Webhook URL on failure
+- Hybrid configuration support for maximum reliability
+- Retry wrapper with exponential backoff for improved delivery
+- Enhanced test alerts supporting dual-method validation
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
