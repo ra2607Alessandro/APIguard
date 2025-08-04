@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Github, ExternalLink, Trash2, Settings } from "lucide-react";
+import { Github, ExternalLink, Trash2, Settings, Slack, ArrowRight } from "lucide-react";
+import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -39,13 +40,11 @@ export default function Integrations() {
   // Fetch GitHub installations
   const { data: installations, isLoading: installationsLoading } = useQuery({
     queryKey: ['/api/github/installations'],
-    queryFn: () => apiRequest('/api/github/installations?userId=default-user'),
   });
 
   // Fetch repositories for selected installation
   const { data: repositories, isLoading: repositoriesLoading } = useQuery({
     queryKey: ['/api/github/installation', selectedInstallation, 'repositories'],
-    queryFn: () => apiRequest(`/api/github/installation/${selectedInstallation}/repositories`),
     enabled: !!selectedInstallation,
   });
 
@@ -54,6 +53,7 @@ export default function Integrations() {
     mutationFn: (installationId: number) => 
       apiRequest(`/api/github/installation/${installationId}?userId=default-user`, {
         method: 'DELETE',
+        body: JSON.stringify({}),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/github/installations'] });
@@ -81,7 +81,7 @@ export default function Integrations() {
     onSuccess: (data) => {
       toast({
         title: "Repository scanned successfully",
-        description: `Found ${data.specsFound} OpenAPI specifications.`,
+        description: `Found ${(data as any).specsFound} OpenAPI specifications.`,
       });
     },
     onError: (error: any) => {
@@ -143,10 +143,10 @@ export default function Integrations() {
               <div className="text-center text-muted-foreground">Loading installations...</div>
             ) : (
               <>
-                {installations && installations.length > 0 ? (
+                {installations && (installations as GitHubInstallation[]).length > 0 ? (
                   <div className="space-y-4">
                     <h4 className="font-medium">Connected Installations</h4>
-                    {installations.map((installation: GitHubInstallation) => (
+                    {(installations as GitHubInstallation[]).map((installation: GitHubInstallation) => (
                       <div key={installation.id} className="flex items-center justify-between p-3 border rounded-lg">
                         <div className="flex items-center gap-3">
                           <Github className="h-4 w-4" />
@@ -213,9 +213,9 @@ export default function Integrations() {
               </div>
             ) : repositoriesLoading ? (
               <div className="text-center text-muted-foreground">Loading repositories...</div>
-            ) : repositories && repositories.length > 0 ? (
+            ) : repositories && (repositories as Repository[]).length > 0 ? (
               <div className="space-y-3 max-h-80 overflow-y-auto">
-                {repositories.map((repo: Repository) => (
+                {(repositories as Repository[]).map((repo: Repository) => (
                   <div key={repo.id} className="flex items-center justify-between p-3 border rounded-lg">
                     <div className="flex items-center gap-3">
                       <img
@@ -251,6 +251,30 @@ export default function Integrations() {
                 No repositories found for this installation.
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Slack Integration */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Slack className="h-5 w-5 text-purple-600" />
+              Slack Integration
+            </CardTitle>
+            <CardDescription>
+              Connect your Slack workspaces to receive API change notifications in real-time.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-muted-foreground">
+              Set up Slack notifications to get instant alerts when breaking changes are detected in your APIs.
+            </div>
+            <Link href="/settings/integrations/slack">
+              <Button className="w-full">
+                <ArrowRight className="mr-2 h-4 w-4" />
+                Configure Slack Integration
+              </Button>
+            </Link>
           </CardContent>
         </Card>
       </div>

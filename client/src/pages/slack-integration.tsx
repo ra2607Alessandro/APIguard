@@ -96,10 +96,10 @@ export default function SlackIntegrationPage() {
 
       return apiRequest("/api/slack/test", {
         method: "POST",
-        body: {
+        body: JSON.stringify({
           workspaceId: selectedWorkspace,
           channelId: selectedChannel,
-        },
+        }),
       });
     },
     onSuccess: () => {
@@ -147,7 +147,7 @@ export default function SlackIntegrationPage() {
                 <SelectValue placeholder="Select a project..." />
               </SelectTrigger>
               <SelectContent>
-                {projects?.map((project: any) => (
+                {(projects as any[])?.map((project: any) => (
                   <SelectItem key={project.id} value={project.id}>
                     {project.name}
                   </SelectItem>
@@ -177,10 +177,10 @@ export default function SlackIntegrationPage() {
                 </div>
               ) : (
                 <>
-                  {workspaces?.length > 0 && (
+                  {(workspaces as SlackWorkspace[])?.length > 0 && (
                     <div className="space-y-3">
                       <h4 className="font-medium">Connected Workspaces:</h4>
-                      {workspaces.map((workspace: SlackWorkspace) => (
+                      {(workspaces as SlackWorkspace[]).map((workspace: SlackWorkspace) => (
                         <div
                           key={workspace.id}
                           className="flex items-center justify-between p-3 border rounded-lg"
@@ -217,7 +217,7 @@ export default function SlackIntegrationPage() {
         )}
 
         {/* Channel Selection */}
-        {workspaces?.length > 0 && (
+        {(workspaces as SlackWorkspace[])?.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -237,7 +237,7 @@ export default function SlackIntegrationPage() {
                       <SelectValue placeholder="Select workspace..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {workspaces.map((workspace: SlackWorkspace) => (
+                      {(workspaces as SlackWorkspace[]).map((workspace: SlackWorkspace) => (
                         <SelectItem key={workspace.id} value={workspace.id}>
                           {workspace.team_name}
                         </SelectItem>
@@ -260,7 +260,7 @@ export default function SlackIntegrationPage() {
                       {channelsLoading ? (
                         <div className="p-2">Loading channels...</div>
                       ) : (
-                        channels?.map((channel: SlackChannel) => (
+                        (channels as SlackChannel[])?.map((channel: SlackChannel) => (
                           <SelectItem key={channel.id} value={channel.id}>
                             #{channel.name}
                             {channel.isPrivate && (
@@ -313,7 +313,7 @@ export default function SlackIntegrationPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span>Workspace Connected</span>
-                {workspaces?.length > 0 ? (
+                {(workspaces as SlackWorkspace[])?.length > 0 ? (
                   <CheckCircle className="h-5 w-5 text-green-500" />
                 ) : (
                   <AlertCircle className="h-5 w-5 text-gray-400" />
