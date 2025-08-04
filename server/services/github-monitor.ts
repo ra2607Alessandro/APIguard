@@ -409,38 +409,18 @@ export class GitHubMonitor {
           const project = await this.storage.getProject(projectId);
           const alertConfigs = await this.storage.getAlertConfigs(projectId);
           
-          // Send Slack alerts via new workspace integration (MILESTONE 3)
+          // Send email alerts for breaking changes
           if (project) {
             try {
-              const { sendBreakingChangeAlert } = await import('./alert-service.js');
-              const severity = this.calculateSeverity(analysis.breakingChanges) as 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-              const changeDescription = analysis.summary || `${analysis.breakingChanges.length} breaking changes detected`;
-              
-              await sendBreakingChangeAlert(
+              await alertService.triggerEmailAlerts(
                 projectId,
-                changeDescription,
-                severity,
-                project.name,
-                commitSha,
-                `${owner}/${repo}`
+                source.source_path,
+                analysis
               );
-              console.log(`🚨 Slack alerts sent for ${analysis.breakingChanges.length} breaking changes in ${project.name}`);
-            } catch (slackError: any) {
-              console.error(`Failed to send Slack alerts: ${slackError.message}`);
+              console.log(`🚨 Email alerts sent for ${analysis.breakingChanges.length} breaking changes in ${project.name}`);
+            } catch (emailError: any) {
+              console.error(`Failed to send email alerts: ${emailError.message}`);
             }
-          }
-          
-          // Also send traditional alerts if configured
-          if (project && alertConfigs.length > 0) {
-            await alertService.triggerConfiguredAlerts(
-              projectId,
-              project.name,
-              analysis,
-              alertConfigs
-            );
-            console.log(`🚨 Traditional alerts sent for ${analysis.breakingChanges.length} breaking changes in ${project.name}`);
-          } else {
-            console.log(`⚠️  Breaking changes found but no traditional alert configs for project ${projectId}`);
           }
         } else if (latestVersion) {
           console.log(`✅ No breaking changes detected in ${source.source_path}`);
@@ -515,13 +495,13 @@ export class GitHubMonitor {
       const project = await this.storage.getProject(projectId);
       const alertConfigs = await this.storage.getAlertConfigs(projectId);
       
-      if (project && alertConfigs.length > 0) {
+      if (project) {
         const { AlertService } = await import('./alert-service');
         const alertService = new AlertService();
         
-        await alertService.triggerConfiguredAlerts(
+        await alertService.triggerEmailAlerts(
           projectId,
-          project.name,
+          source.source_path,
           {
             breakingChanges,
             nonBreakingChanges: [],

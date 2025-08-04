@@ -8,8 +8,7 @@ import {
   discovered_specs, 
   monitoring_configs,
   users,
-  slack_workspaces,
-  alert_destinations,
+  user_notifications,
   type Project,
   type InsertProject,
   type SpecSource,
@@ -28,10 +27,8 @@ import {
   type InsertMonitoringConfig,
   type User,
   type InsertUser,
-  type SlackWorkspace,
-  type InsertSlackWorkspace,
-  type AlertDestination,
-  type InsertAlertDestination
+  type UserNotification,
+  type InsertUserNotification
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -103,10 +100,10 @@ export interface IStorage {
     lastCheck: Date | null;
   }>;
 
-  // Slack workspace methods
-  getSlackWorkspaces(projectId: string): Promise<SlackWorkspace[]>;
-  createSlackWorkspace(workspace: InsertSlackWorkspace): Promise<SlackWorkspace>;
-  getSlackToken(workspaceId: string): Promise<string>;
+  // User notification methods
+  getUserNotifications(projectId: string): Promise<UserNotification[]>;
+  createUserNotification(notification: InsertUserNotification): Promise<UserNotification>;
+  deleteUserNotification(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -579,6 +576,30 @@ export class DatabaseStorage implements IStorage {
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;
+  }
+
+  // User notification methods
+  async getUserNotifications(projectId: string): Promise<UserNotification[]> {
+    return await db
+      .select()
+      .from(user_notifications)
+      .where(and(
+        eq(user_notifications.project_id, projectId),
+        eq(user_notifications.is_active, true)
+      ))
+      .orderBy(desc(user_notifications.created_at));
+  }
+
+  async createUserNotification(notification: InsertUserNotification): Promise<UserNotification> {
+    const [newNotification] = await db
+      .insert(user_notifications)
+      .values(notification)
+      .returning();
+    return newNotification;
+  }
+
+  async deleteUserNotification(id: string): Promise<void> {
+    await db.delete(user_notifications).where(eq(user_notifications.id, id));
   }
 }
 

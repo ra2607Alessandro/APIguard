@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Shield, BarChart3, FolderOpen, Activity, Bell, Settings, Zap } from "lucide-react";
+import { Shield, BarChart3, FolderOpen, Activity, Bell, Settings, Zap, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -9,6 +9,7 @@ const navItems = [
   { path: "/projects", label: "Projects", icon: FolderOpen },
   { path: "/monitoring", label: "Monitoring", icon: Activity },
   { path: "/alerts", label: "Alerts", icon: Bell },
+  { path: "/settings/notifications/email", label: "Email Alerts", icon: Mail },
   { path: "/integrations", label: "Integrations", icon: Settings },
   { path: "/llm-test", label: "LLM Test", icon: Zap },
 ];

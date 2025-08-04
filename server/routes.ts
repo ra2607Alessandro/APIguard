@@ -433,12 +433,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/alerts/test", async (req, res) => {
     try {
-      const { channelType, configData } = req.body;
-      const result = await alertService.testAlert(channelType, configData);
+      const { email, projectName } = req.body;
+      if (!email || !projectName) {
+        return res.status(400).json({ message: "Email and project name are required" });
+      }
+      
+      const result = await alertService.testEmailAlert(email, projectName);
       res.json({ success: result.success, message: result.message });
     } catch (error) {
-      console.error("Error testing alert:", error);
-      res.status(500).json({ message: "Failed to test alert" });
+      console.error("Error testing email alert:", error);
+      res.status(500).json({ message: "Failed to test email alert" });
     }
   });
 
@@ -886,6 +890,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error sending test notification:", error);
       res.status(500).json({ message: "Failed to send test notification" });
+    }
+  });
+
+  // Email notification routes
+  app.get("/api/projects/:projectId/notifications", async (req, res) => {
+    try {
+      const notifications = await storage.getUserNotifications(req.params.projectId);
+      res.json(notifications);
+    } catch (error) {
+      console.error("Error fetching user notifications:", error);
+      res.status(500).json({ message: "Failed to fetch notifications" });
+    }
+  });
+
+  app.post("/api/projects/:projectId/notifications", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      const notification = {
+        project_id: req.params.projectId,
+        email: email,
+        is_active: true
+      };
+
+      const created = await storage.createUserNotification(notification);
+      res.status(201).json(created);
+    } catch (error) {
+      console.error("Error creating notification:", error);
+      res.status(400).json({ message: "Failed to create notification" });
+    }
+  });
+
+  app.delete("/api/notifications/:id", async (req, res) => {
+    try {
+      await storage.deleteUserNotification(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting notification:", error);
+      res.status(500).json({ message: "Failed to delete notification" });
+    }
+  });
+
+  // Test email notification
+  app.post("/api/projects/:projectId/notifications/test", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      const project = await storage.getProject(req.params.projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const { emailService } = await import('./services/email-service.js');
+      await emailService.sendTestEmail(email, project.name);
+
+      res.json({ message: "Test email sent successfully" });
+    } catch (error) {
+      console.error("Error sending test email:", error);
+      res.status(500).json({ message: "Failed to send test email" });
     }
   });
 
