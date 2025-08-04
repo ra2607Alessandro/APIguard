@@ -42,10 +42,7 @@ export default function EmailNotificationsPage() {
         throw new Error("Please select a project and enter an email address");
       }
 
-      return apiRequest(`/api/projects/${selectedProject}/notifications`, {
-        method: "POST",
-        body: JSON.stringify({ email }),
-      });
+      return apiRequest("POST", `/api/projects/${selectedProject}/notifications`, { email });
     },
     onSuccess: () => {
       toast({
@@ -67,9 +64,7 @@ export default function EmailNotificationsPage() {
   // Remove email notification mutation
   const removeNotification = useMutation({
     mutationFn: async (notificationId: string) => {
-      return apiRequest(`/api/notifications/${notificationId}`, {
-        method: "DELETE",
-      });
+      return apiRequest("DELETE", `/api/notifications/${notificationId}`);
     },
     onSuccess: () => {
       toast({
@@ -94,10 +89,7 @@ export default function EmailNotificationsPage() {
         throw new Error("Please select a project and enter an email address");
       }
 
-      return apiRequest(`/api/projects/${selectedProject}/notifications/test`, {
-        method: "POST",
-        body: JSON.stringify({ email }),
-      });
+      return apiRequest("POST", `/api/projects/${selectedProject}/notifications/test`, { email });
     },
     onSuccess: () => {
       toast({
