@@ -282,6 +282,16 @@ export const slack_workspaces = pgTable("slack_workspaces", {
   updated_at: timestamp("updated_at").defaultNow(),
 });
 
+export const alert_destinations = pgTable("alert_destinations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  project_id: varchar("project_id").references(() => projects.id).notNull(),
+  workspace_id: varchar("workspace_id").references(() => slack_workspaces.id, { onDelete: "cascade" }).notNull(),
+  channel_id: text("channel_id").notNull(),
+  channel_name: text("channel_name").notNull(),
+  is_primary: boolean("is_primary").default(true),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
 // Relations for users and installations
 export const usersRelations = relations(users, ({ many }) => ({
   githubInstallations: many(github_installations),
@@ -294,10 +304,22 @@ export const githubInstallationsRelations = relations(github_installations, ({ o
   }),
 }));
 
-export const slackWorkspacesRelations = relations(slack_workspaces, ({ one }) => ({
+export const slackWorkspacesRelations = relations(slack_workspaces, ({ one, many }) => ({
   project: one(projects, {
     fields: [slack_workspaces.project_id],
     references: [projects.id],
+  }),
+  alertDestinations: many(alert_destinations),
+}));
+
+export const alertDestinationsRelations = relations(alert_destinations, ({ one }) => ({
+  project: one(projects, {
+    fields: [alert_destinations.project_id],
+    references: [projects.id],
+  }),
+  workspace: one(slack_workspaces, {
+    fields: [alert_destinations.workspace_id],
+    references: [slack_workspaces.id],
   }),
 }));
 
@@ -318,6 +340,11 @@ export const insertSlackWorkspaceSchema = createInsertSchema(slack_workspaces).o
   updated_at: true,
 });
 
+export const insertAlertDestinationSchema = createInsertSchema(alert_destinations).omit({
+  id: true,
+  created_at: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
@@ -326,3 +353,6 @@ export type GithubInstallation = typeof github_installations.$inferSelect;
 
 export type InsertSlackWorkspace = z.infer<typeof insertSlackWorkspaceSchema>;
 export type SlackWorkspace = typeof slack_workspaces.$inferSelect;
+
+export type InsertAlertDestination = z.infer<typeof insertAlertDestinationSchema>;
+export type AlertDestination = typeof alert_destinations.$inferSelect;

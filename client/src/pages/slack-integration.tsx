@@ -117,6 +117,44 @@ export default function SlackIntegrationPage() {
     },
   });
 
+  // Save configuration mutation
+  const saveConfiguration = useMutation({
+    mutationFn: async () => {
+      if (!selectedProject || !selectedWorkspace || !selectedChannel) {
+        throw new Error("Please select a project, workspace, and channel first");
+      }
+      
+      const selectedChannelData = (channels as SlackChannel[])?.find(ch => ch.id === selectedChannel);
+      if (!selectedChannelData) throw new Error('Channel not found');
+
+      return apiRequest('/api/alert-destinations', {
+        method: 'POST',
+        body: JSON.stringify({
+          project_id: selectedProject,
+          workspace_id: selectedWorkspace,
+          channel_id: selectedChannel,
+          channel_name: selectedChannelData.name,
+          is_primary: true,
+        }),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Configuration Saved",
+        description: "Slack notifications are now active for this project.",
+      });
+      // Refetch destinations to update the UI
+      queryClient.invalidateQueries({ queryKey: ['/api/alert-destinations', selectedProject] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Save Failed",
+        description: error.message || "Failed to save configuration",
+        variant: "destructive",
+      });
+    },
+  });
+
   return (
     <div className="container mx-auto p-6 space-y-8" data-testid="slack-integration-page">
       <div className="flex items-center gap-3">
@@ -284,8 +322,12 @@ export default function SlackIntegrationPage() {
                   >
                     {testNotification.isPending ? "Sending..." : "Send Test Notification"}
                   </Button>
-                  <Button data-testid="button-save-config">
-                    Save Configuration
+                  <Button 
+                    onClick={() => saveConfiguration.mutate()}
+                    disabled={saveConfiguration.isPending}
+                    data-testid="button-save-config"
+                  >
+                    {saveConfiguration.isPending ? "Saving..." : "Save Configuration"}
                   </Button>
                 </div>
               )}

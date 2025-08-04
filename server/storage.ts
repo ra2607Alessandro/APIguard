@@ -9,6 +9,7 @@ import {
   monitoring_configs,
   users,
   slack_workspaces,
+  alert_destinations,
   type Project,
   type InsertProject,
   type SpecSource,
@@ -28,7 +29,9 @@ import {
   type User,
   type InsertUser,
   type SlackWorkspace,
-  type InsertSlackWorkspace
+  type InsertSlackWorkspace,
+  type AlertDestination,
+  type InsertAlertDestination
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -530,6 +533,27 @@ export class DatabaseStorage implements IStorage {
       throw new Error('Slack workspace not found');
     }
     return this.decryptToken(workspace.access_token);
+  }
+
+  // Alert destination methods
+  async getAlertDestinations(projectId: string): Promise<AlertDestination[]> {
+    return await db.select().from(alert_destinations).where(eq(alert_destinations.project_id, projectId));
+  }
+
+  async createAlertDestination(destination: InsertAlertDestination): Promise<AlertDestination> {
+    const [newDestination] = await db
+      .insert(alert_destinations)
+      .values(destination)
+      .returning();
+    return newDestination;
+  }
+
+  async deleteAlertDestination(destinationId: string): Promise<void> {
+    await db.delete(alert_destinations).where(eq(alert_destinations.id, destinationId));
+  }
+
+  async getAlertDestinationsForProject(projectId: string): Promise<AlertDestination[]> {
+    return await db.select().from(alert_destinations).where(eq(alert_destinations.project_id, projectId));
   }
 
   private encryptToken(token: string): string {

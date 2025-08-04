@@ -409,6 +409,28 @@ export class GitHubMonitor {
           const project = await this.storage.getProject(projectId);
           const alertConfigs = await this.storage.getAlertConfigs(projectId);
           
+          // Send Slack alerts via new workspace integration (MILESTONE 3)
+          if (project) {
+            try {
+              const { sendBreakingChangeAlert } = await import('./alert-service.js');
+              const severity = this.calculateSeverity(analysis.breakingChanges) as 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+              const changeDescription = analysis.summary || `${analysis.breakingChanges.length} breaking changes detected`;
+              
+              await sendBreakingChangeAlert(
+                projectId,
+                changeDescription,
+                severity,
+                project.name,
+                commitSha,
+                `${owner}/${repo}`
+              );
+              console.log(`🚨 Slack alerts sent for ${analysis.breakingChanges.length} breaking changes in ${project.name}`);
+            } catch (slackError: any) {
+              console.error(`Failed to send Slack alerts: ${slackError.message}`);
+            }
+          }
+          
+          // Also send traditional alerts if configured
           if (project && alertConfigs.length > 0) {
             await alertService.triggerConfiguredAlerts(
               projectId,
@@ -416,9 +438,9 @@ export class GitHubMonitor {
               analysis,
               alertConfigs
             );
-            console.log(`🚨 Alerts sent for ${analysis.breakingChanges.length} breaking changes in ${project.name}`);
+            console.log(`🚨 Traditional alerts sent for ${analysis.breakingChanges.length} breaking changes in ${project.name}`);
           } else {
-            console.log(`⚠️  Breaking changes found but no alert configs for project ${projectId}`);
+            console.log(`⚠️  Breaking changes found but no traditional alert configs for project ${projectId}`);
           }
         } else if (latestVersion) {
           console.log(`✅ No breaking changes detected in ${source.source_path}`);

@@ -663,6 +663,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Slack OAuth routes (MILESTONE 1)
+  // Alert destinations endpoints
+  app.get('/api/alert-destinations/:projectId', async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const destinations = await storage.getAlertDestinations(projectId);
+      res.json(destinations);
+    } catch (error) {
+      console.error('Failed to get alert destinations:', error);
+      res.status(500).json({ error: 'Failed to get alert destinations' });
+    }
+  });
+
+  app.post('/api/alert-destinations', async (req, res) => {
+    try {
+      const destination = await storage.createAlertDestination(req.body);
+      res.json(destination);
+    } catch (error) {
+      console.error('Failed to create alert destination:', error);
+      res.status(500).json({ error: 'Failed to create alert destination' });
+    }
+  });
+
+  app.delete('/api/alert-destinations/:destinationId', async (req, res) => {
+    try {
+      const { destinationId } = req.params;
+      await storage.deleteAlertDestination(destinationId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Failed to delete alert destination:', error);
+      res.status(500).json({ error: 'Failed to delete alert destination' });
+    }
+  });
+
   app.get("/api/slack/oauth/start", async (req, res) => {
     try {
       const { projectId } = req.query;

@@ -452,3 +452,37 @@ Test performed at: ${new Date().toISOString()}`;
     }
   }
 }
+
+export const alertService = new AlertService();
+
+/**
+ * Send breaking change alerts using the new Slack workspace integration
+ * This function integrates MILESTONE 3 with the existing alert pipeline
+ */
+export async function sendBreakingChangeAlert(
+  projectId: string,
+  changeDescription: string,
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW',
+  projectName: string,
+  commitHash?: string,
+  repository?: string
+): Promise<void> {
+  try {
+    // Import the Slack service to avoid circular dependencies
+    const { sendBreakingChangeAlert } = await import('./slack-service.js');
+    
+    await sendBreakingChangeAlert(
+      projectId,
+      changeDescription,
+      severity,
+      projectName,
+      commitHash,
+      repository
+    );
+    
+    console.log(`Breaking change alert sent for project ${projectName} (${projectId})`);
+  } catch (error: any) {
+    console.error('Failed to send Slack breaking change alerts:', error);
+    // Don't throw - we still want other alert types to work if configured
+  }
+}
