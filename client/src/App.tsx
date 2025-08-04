@@ -8,6 +8,7 @@ import Projects from "@/pages/projects";
 import Monitoring from "@/pages/monitoring";
 import Alerts from "@/pages/alerts";
 import Integrations from "@/pages/integrations";
+import SlackIntegration from "@/pages/slack-integration";
 import LLMDetectionTest from "@/pages/llm-detection-test";
 import Navigation from "@/components/navigation";
 import NotFound from "@/pages/not-found";
@@ -22,6 +23,7 @@ function Router() {
         <Route path="/monitoring" component={Monitoring} />
         <Route path="/alerts" component={Alerts} />
         <Route path="/integrations" component={Integrations} />
+        <Route path="/settings/integrations/slack" component={SlackIntegration} />
         <Route path="/llm-test" component={LLMDetectionTest} />
         <Route component={NotFound} />
       </Switch>

@@ -107,6 +107,7 @@ export const projectsRelations = relations(projects, ({ many }) => ({
   alertConfigs: many(alert_configs),
   discoveredSpecs: many(discovered_specs),
   monitoringConfigs: many(monitoring_configs),
+  slackWorkspaces: many(slack_workspaces),
 }));
 
 export const specSourcesRelations = relations(spec_sources, ({ one, many }) => ({
@@ -270,6 +271,17 @@ export const github_installations = pgTable("github_installations", {
   updated_at: timestamp("updated_at").defaultNow(),
 });
 
+export const slack_workspaces = pgTable("slack_workspaces", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  project_id: varchar("project_id").references(() => projects.id).notNull(),
+  team_id: text("team_id").unique().notNull(),
+  team_name: text("team_name").notNull(),
+  access_token: text("access_token").notNull(), // encrypted BYTEA stored as text
+  bot_user_id: text("bot_user_id").notNull(),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
 // Relations for users and installations
 export const usersRelations = relations(users, ({ many }) => ({
   githubInstallations: many(github_installations),
@@ -279,6 +291,13 @@ export const githubInstallationsRelations = relations(github_installations, ({ o
   user: one(users, {
     fields: [github_installations.user_id],
     references: [users.id],
+  }),
+}));
+
+export const slackWorkspacesRelations = relations(slack_workspaces, ({ one }) => ({
+  project: one(projects, {
+    fields: [slack_workspaces.project_id],
+    references: [projects.id],
   }),
 }));
 
@@ -293,8 +312,17 @@ export const insertGithubInstallationSchema = createInsertSchema(github_installa
   updated_at: true,
 });
 
+export const insertSlackWorkspaceSchema = createInsertSchema(slack_workspaces).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
 export type InsertGithubInstallation = z.infer<typeof insertGithubInstallationSchema>;
 export type GithubInstallation = typeof github_installations.$inferSelect;
+
+export type InsertSlackWorkspace = z.infer<typeof insertSlackWorkspaceSchema>;
+export type SlackWorkspace = typeof slack_workspaces.$inferSelect;

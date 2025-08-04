@@ -8,6 +8,7 @@ import {
   discovered_specs, 
   monitoring_configs,
   users,
+  slack_workspaces,
   type Project,
   type InsertProject,
   type SpecSource,
@@ -25,7 +26,9 @@ import {
   type MonitoringConfig,
   type InsertMonitoringConfig,
   type User,
-  type InsertUser
+  type InsertUser,
+  type SlackWorkspace,
+  type InsertSlackWorkspace
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -96,6 +99,11 @@ export interface IStorage {
     safeChanges: number;
     lastCheck: Date | null;
   }>;
+
+  // Slack workspace methods
+  getSlackWorkspaces(projectId: string): Promise<SlackWorkspace[]>;
+  createSlackWorkspace(workspace: InsertSlackWorkspace): Promise<SlackWorkspace>;
+  getSlackToken(workspaceId: string): Promise<string>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -498,6 +506,55 @@ export class DatabaseStorage implements IStorage {
       lastCheck: lastCheckResult?.created_at || null,
       errorSources: errorSourcesFormatted,
     };
+  }
+
+  // Slack workspace methods
+  async getSlackWorkspaces(projectId: string): Promise<SlackWorkspace[]> {
+    return await db.select().from(slack_workspaces).where(eq(slack_workspaces.project_id, projectId));
+  }
+
+  async createSlackWorkspace(workspace: InsertSlackWorkspace): Promise<SlackWorkspace> {
+    const [newWorkspace] = await db
+      .insert(slack_workspaces)
+      .values({
+        ...workspace,
+        access_token: this.encryptToken(workspace.access_token)
+      })
+      .returning();
+    return newWorkspace;
+  }
+
+  async getSlackToken(workspaceId: string): Promise<string> {
+    const [workspace] = await db.select().from(slack_workspaces).where(eq(slack_workspaces.id, workspaceId));
+    if (!workspace) {
+      throw new Error('Slack workspace not found');
+    }
+    return this.decryptToken(workspace.access_token);
+  }
+
+  private encryptToken(token: string): string {
+    const crypto = require('crypto');
+    const key = Buffer.from(process.env.TOKEN_ENCRYPTION_KEY!, 'hex');
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipherGCM('aes-256-gcm', key, iv);
+    let encrypted = cipher.update(token, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag();
+    return iv.toString('hex') + ':' + encrypted + ':' + authTag.toString('hex');
+  }
+
+  private decryptToken(encryptedToken: string): string {
+    const crypto = require('crypto');
+    const key = Buffer.from(process.env.TOKEN_ENCRYPTION_KEY!, 'hex');
+    const parts = encryptedToken.split(':');
+    const iv = Buffer.from(parts[0], 'hex');
+    const encrypted = parts[1];
+    const authTag = Buffer.from(parts[2], 'hex');
+    const decipher = crypto.createDecipherGCM('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
   }
 }
 

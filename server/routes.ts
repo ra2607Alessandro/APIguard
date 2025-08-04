@@ -7,7 +7,8 @@ import {
   insertSpecSourceSchema, 
   insertAlertConfigSchema,
   insertDiscoveredSpecSchema,
-  insertChangeAnalysisSchema 
+  insertChangeAnalysisSchema,
+  insertSlackWorkspaceSchema 
 } from "@shared/schema";
 import { GitHubMonitor } from "./services/github-monitor";
 import { BreakingChangeAnalyzer } from "./services/breaking-change-rules";
@@ -658,6 +659,200 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error('Error comparing detection methods:', error);
       res.status(500).json({ error: error.message || 'Failed to compare detection methods' });
+    }
+  });
+
+  // Slack OAuth routes (MILESTONE 1)
+  app.get("/api/slack/oauth/start", async (req, res) => {
+    try {
+      const { projectId } = req.query;
+      if (!projectId) {
+        return res.status(400).json({ message: "Project ID is required" });
+      }
+
+      const clientId = process.env.SLACK_CLIENT_ID;
+      if (!clientId) {
+        return res.status(500).json({ message: "Slack client ID not configured" });
+      }
+
+      const scopes = 'channels:read,groups:read,chat:write,team:read,users:read';
+      const state = Buffer.from(JSON.stringify({ projectId })).toString('base64');
+      const redirectUri = `${req.protocol}://${req.get('host')}/api/slack/oauth/callback`;
+      
+      const slackOAuthUrl = `https://slack.com/oauth/v2/authorize?` +
+        `client_id=${clientId}&` +
+        `scope=${scopes}&` +
+        `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+        `state=${state}`;
+
+      res.redirect(slackOAuthUrl);
+    } catch (error) {
+      console.error("Error starting Slack OAuth:", error);
+      res.status(500).json({ message: "Failed to start OAuth flow" });
+    }
+  });
+
+  app.get("/api/slack/oauth/callback", async (req, res) => {
+    try {
+      const { code, state, error } = req.query;
+
+      if (error) {
+        console.error("Slack OAuth error:", error);
+        return res.redirect(`/settings/integrations/slack?error=${error}`);
+      }
+
+      if (!code || !state) {
+        return res.status(400).json({ message: "Missing OAuth code or state" });
+      }
+
+      // Decode state to get projectId
+      const { projectId } = JSON.parse(Buffer.from(state as string, 'base64').toString());
+
+      // Exchange code for token
+      const tokenResponse = await fetch('https://slack.com/api/oauth.v2.access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: process.env.SLACK_CLIENT_ID!,
+          client_secret: process.env.SLACK_CLIENT_SECRET!,
+          code: code as string,
+          redirect_uri: `${req.protocol}://${req.get('host')}/api/slack/oauth/callback`
+        })
+      });
+
+      const tokenData = await tokenResponse.json();
+
+      if (!tokenData.ok) {
+        console.error("Slack token exchange failed:", tokenData);
+        return res.redirect(`/settings/integrations/slack?error=token_exchange_failed`);
+      }
+
+      // Create slack workspace record
+      const workspace = await storage.createSlackWorkspace({
+        project_id: projectId,
+        team_id: tokenData.team.id,
+        team_name: tokenData.team.name,
+        access_token: tokenData.access_token,
+        bot_user_id: tokenData.bot_user_id
+      });
+
+      res.redirect(`/settings/integrations/slack?connected=1&workspace=${workspace.id}`);
+    } catch (error) {
+      console.error("Error in Slack OAuth callback:", error);
+      res.redirect(`/settings/integrations/slack?error=callback_failed`);
+    }
+  });
+
+  // Slack workspace management (MILESTONE 1)
+  app.get("/api/projects/:projectId/slack/workspaces", async (req, res) => {
+    try {
+      const workspaces = await storage.getSlackWorkspaces(req.params.projectId);
+      // Return workspaces without sensitive access tokens
+      const safeWorkspaces = workspaces.map(({ access_token, ...workspace }) => workspace);
+      res.json(safeWorkspaces);
+    } catch (error) {
+      console.error("Error fetching Slack workspaces:", error);
+      res.status(500).json({ message: "Failed to fetch Slack workspaces" });
+    }
+  });
+
+  // Slack channel discovery (MILESTONE 2)
+  app.get("/api/slack/workspaces/:workspaceId/channels", async (req, res) => {
+    try {
+      const { workspaceId } = req.params;
+      const token = await storage.getSlackToken(workspaceId);
+
+      // Fetch channels using Slack Web API
+      const channelsResponse = await fetch('https://slack.com/api/conversations.list', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const channelsData = await channelsResponse.json();
+
+      if (!channelsData.ok) {
+        console.error("Slack API error:", channelsData.error);
+        return res.status(400).json({ message: `Slack API error: ${channelsData.error}` });
+      }
+
+      // Filter for channels the bot can post to
+      const availableChannels = channelsData.channels
+        .filter((channel: any) => !channel.is_archived && (channel.is_member || channel.is_public))
+        .map((channel: any) => ({
+          id: channel.id,
+          name: channel.name,
+          isPrivate: channel.is_private,
+          isMember: channel.is_member
+        }));
+
+      res.json(availableChannels);
+    } catch (error) {
+      console.error("Error fetching Slack channels:", error);
+      res.status(500).json({ message: "Failed to fetch Slack channels" });
+    }
+  });
+
+  // Test Slack notification
+  app.post("/api/slack/test", async (req, res) => {
+    try {
+      const { workspaceId, channelId } = req.body;
+      
+      if (!workspaceId || !channelId) {
+        return res.status(400).json({ message: "Workspace ID and channel ID are required" });
+      }
+
+      const token = await storage.getSlackToken(workspaceId);
+
+      const testMessage = {
+        channel: channelId,
+        text: "🚀 API Sentinel Test Notification",
+        blocks: [
+          {
+            type: "header",
+            text: {
+              type: "plain_text",
+              text: "🚀 API Sentinel Test Notification"
+            }
+          },
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: "This is a test message from API Sentinel. Your Slack integration is working correctly! 🎉"
+            }
+          },
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn", 
+              text: `*Timestamp:* ${new Date().toISOString()}\n*Status:* ✅ Integration Active`
+            }
+          }
+        ]
+      };
+
+      const response = await fetch('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(testMessage)
+      });
+
+      const result = await response.json();
+
+      if (!result.ok) {
+        console.error("Slack API error:", result.error);
+        return res.status(400).json({ message: `Slack API error: ${result.error}` });
+      }
+
+      res.json({ success: true, message: "Test notification sent successfully" });
+    } catch (error) {
+      console.error("Error sending test notification:", error);
+      res.status(500).json({ message: "Failed to send test notification" });
     }
   });
 
