@@ -9,6 +9,7 @@ import {
   monitoring_configs,
   users,
   user_notifications,
+  slack_workspaces,
   type Project,
   type InsertProject,
   type SpecSource,
@@ -161,7 +162,40 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteProject(id: string): Promise<void> {
-    await db.delete(projects).where(eq(projects.id, id));
+    // Wrap cascade deletion in a database transaction to ensure data integrity
+    await db.transaction(async (tx) => {
+      // Delete related records in proper order to avoid foreign key constraint violations
+      
+      // 1. Delete from alert_configs where project_id matches
+      await tx.delete(alert_configs).where(eq(alert_configs.project_id, id));
+      
+      // 2. Delete from spec_sources where project_id matches
+      await tx.delete(spec_sources).where(eq(spec_sources.project_id, id));
+      
+      // 3. Delete from user_notifications where project_id matches
+      await tx.delete(user_notifications).where(eq(user_notifications.project_id, id));
+      
+      // 4. Delete from environments where project_id matches
+      await tx.delete(environments).where(eq(environments.project_id, id));
+      
+      // 5. Delete from schema_versions where project_id matches
+      await tx.delete(schema_versions).where(eq(schema_versions.project_id, id));
+      
+      // 6. Delete from change_analyses where project_id matches
+      await tx.delete(change_analyses).where(eq(change_analyses.project_id, id));
+      
+      // 7. Delete from discovered_specs where project_id matches
+      await tx.delete(discovered_specs).where(eq(discovered_specs.project_id, id));
+      
+      // 8. Delete from monitoring_configs where project_id matches
+      await tx.delete(monitoring_configs).where(eq(monitoring_configs.project_id, id));
+      
+      // 9. Delete from slack_workspaces where project_id matches
+      await tx.delete(slack_workspaces).where(eq(slack_workspaces.project_id, id));
+      
+      // 10. Finally delete the project record
+      await tx.delete(projects).where(eq(projects.id, id));
+    });
   }
 
   // Spec source methods

@@ -100,9 +100,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       await storage.deleteProject(req.params.id);
       res.status(204).send();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting project:", error);
-      res.status(500).json({ message: "Failed to delete project" });
+      
+      // Add specific error messages for foreign key constraint failures
+      if (error.code === '23503') {
+        res.status(500).json({ message: "Cannot delete project: it has related data that must be removed first" });
+      } else {
+        res.status(500).json({ message: "Failed to delete project" });
+      }
     }
   });
 
