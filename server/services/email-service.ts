@@ -9,7 +9,7 @@ const mailService = new MailService();
 mailService.setApiKey(process.env.SENDGRID_API_KEY);
 
 export class EmailService {
-  private fromEmail = 'alerts@apisentinel.dev'; // Use your verified sender
+  private fromEmail = '2alessandro.aimar@gmail.com'; // Use verified sender
 
   async sendBreakingChangeAlert(
     notification: UserNotification,

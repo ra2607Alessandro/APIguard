@@ -72,7 +72,7 @@ export class AlertService {
         .filter(notification => notification.is_active)
         .map(notification => 
           this.emailService.sendBreakingChangeAlert(
-            notification.email, 
+            notification, 
             project.name, 
             apiName, 
             result
