@@ -22,6 +22,9 @@ class ApiClient {
       throw new Error(errorMessage);
     }
 
+    if (response.status === 204 || response.headers.get('content-length') === '0') {
+      return null;
+    }
     return response.json();
   }
 
