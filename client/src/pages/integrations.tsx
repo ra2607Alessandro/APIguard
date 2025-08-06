@@ -58,6 +58,11 @@ export default function Integrations() {
     }
   }, [toast]);
 
+  // Check GitHub connection status
+  const { data: githubStatus, isLoading: statusLoading } = useQuery({
+    queryKey: ['/api/auth/github'],
+  });
+
   // Fetch GitHub installations
   const { data: installations, isLoading: installationsLoading } = useQuery({
     queryKey: ['/api/github/installations'],

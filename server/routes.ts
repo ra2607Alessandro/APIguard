@@ -86,6 +86,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/auth/github", authMiddleware, async (req: any, res) => {
+    try {
+      const { getUserGitHubToken } = await import("./services/github-oauth");
+      const accessToken = await getUserGitHubToken(req.user.id);
+      res.json({ 
+        connected: !!accessToken,
+        hasToken: !!accessToken 
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.get("/api/auth/github/repositories", authMiddleware, async (req: any, res) => {
     try {
       const { getUserGitHubToken } = await import("./services/github-oauth");
@@ -112,24 +125,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Add after existing OAuth routes
   app.get("/auth/github/callback", async (req, res) => {
+    // Set CORS headers
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    console.log('=== GITHUB OAUTH CALLBACK DEBUG ===');
+    console.log('Query params:', req.query);
+    console.log('Headers:', req.headers);
+    console.log('Full URL:', req.url);
+    
     try {
       const { code, state } = req.query;
+      console.log('Extracted code:', code ? 'present' : 'missing');
+      console.log('Extracted state:', state ? 'present' : 'missing');
+      
       if (!code || !state) throw new Error("Invalid callback parameters");
       
       // Validate state
+      console.log('Decoding state:', state);
       const decodedState = JSON.parse(Buffer.from(state as string, 'base64').toString());
+      console.log('Decoded state:', decodedState);
+      
       if (Date.now() - decodedState.timestamp > 600000) throw new Error("State expired");  // 10-min expiry
       
+      console.log('Exchanging code for token...');
       const accessToken = await exchangeCodeForToken(code as string);
+      console.log('Got access token:', accessToken ? 'success' : 'failed');
+      
+      console.log('Getting GitHub user...');
       const githubUser = await getGitHubUser(accessToken);
+      console.log('GitHub user:', githubUser);
+      
+      console.log('Saving user GitHub token...');
       await saveUserGitHubToken(decodedState.userId, accessToken, githubUser);  // Use state.userId
+      console.log('Token saved successfully');
       
       const frontendUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
         ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
         : 'http://localhost:5000';
+      
+      console.log('Redirecting to:', `${frontendUrl}/integrations?connected=true`);
       res.redirect(`${frontendUrl}/integrations?connected=true`);  // Generalized redirect
     } catch (error) {
-      console.error("OAuth callback error:", error);
+      console.error("=== OAUTH CALLBACK ERROR ===");
+      console.error("Error details:", error);
+      console.error("Stack trace:", error instanceof Error ? error.stack : 'No stack trace');
+      
       const frontendUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
         ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
         : 'http://localhost:5000';

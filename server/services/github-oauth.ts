@@ -5,8 +5,8 @@ import { users, user_projects, projects } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { encryptToken, decryptToken } from './auth';
 
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID!;
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET!;
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID!.trim();
+const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET!.trim();
 
 export function getGitHubAuthURL(userId: string) {
   const state = Buffer.from(JSON.stringify({ userId, timestamp: Date.now() })).toString('base64');
