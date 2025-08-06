@@ -1,4 +1,5 @@
-import { Switch, Route } from "wouter";
+import React from "react";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -17,13 +18,27 @@ import NotFound from "@/pages/not-found";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 
 function Router() {
-  const { isAuthenticated, token } = useAuth();
+  const { isAuthenticated, token, isLoading } = useAuth();
+  
+  // Add loading state while auth is being determined
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div>Loading...</div>
+      </div>
+    );
+  }
   
   return (
     <div className="min-h-screen bg-gray-50">
+      {isAuthenticated && <Navigation />}
       <Switch>
-        <Route path="/login" component={LoginPage} />
-        <Route path="/signup" component={SignupPage} />
+        <Route path="/login">
+          {() => isAuthenticated ? <Redirect to="/dashboard" /> : <LoginPage />}
+        </Route>
+        <Route path="/signup">
+          {() => isAuthenticated ? <Redirect to="/dashboard" /> : <SignupPage />}
+        </Route>
         <Route path="/auth/github/callback">
           {() => {
             // Handle GitHub OAuth callback
@@ -47,8 +62,7 @@ function Router() {
         </Route>
         {isAuthenticated ? (
           <>
-            <Navigation />
-            <Route path="/" component={Dashboard} />
+            <Route path="/" component={() => <Redirect to="/dashboard" />} />
             <Route path="/dashboard" component={Dashboard} />
             <Route path="/projects" component={Projects} />
             <Route path="/monitoring" component={Monitoring} />
@@ -59,17 +73,22 @@ function Router() {
             <Route component={NotFound} />
           </>
         ) : (
-          <Route>
-            {() => {
-              // Redirect to login if not authenticated
-              window.location.href = '/login';
-              return <div>Redirecting to login...</div>;
-            }}
-          </Route>
+          <Route component={() => <Redirect to="/login" />} />
         )}
       </Switch>
     </div>
   );
+}
+
+// Simple redirect component for wouter
+function Redirect({ to }: { to: string }) {
+  const [, setLocation] = useLocation();
+  
+  React.useEffect(() => {
+    setLocation(to);
+  }, [to, setLocation]);
+  
+  return null;
 }
 
 function App() {

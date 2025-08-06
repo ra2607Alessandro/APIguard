@@ -13,6 +13,7 @@ import { AlertCircle } from "lucide-react";
 import type { DashboardStats, RecentChange, ProjectHealth } from "@/types";
 
 export default function Dashboard() {
+  console.log("Dashboard component rendering");
   const [showSetupWizard, setShowSetupWizard] = useState(false);
 
   const { data: dashboardData, isLoading, error, refetch } = useQuery({
