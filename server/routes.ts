@@ -108,9 +108,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Project routes with statistics
-  app.get("/api/projects", async (req, res) => {
+  app.get("/api/projects", authMiddleware, async (req: any, res) => {
     try {
-      const projects = await storage.getProjects();
+      const projects = await storage.getProjects(req.user.id);
       
       // Fetch statistics for each project
       const projectsWithStats = await Promise.all(
@@ -144,10 +144,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/projects", async (req, res) => {
+  app.post("/api/projects", authMiddleware, async (req: any, res) => {
     try {
       const projectData = insertProjectSchema.parse(req.body);
-      const project = await storage.createProject(projectData);
+      // Add user_id to project data
+      const projectWithUser = { ...projectData, user_id: req.user.id };
+      const project = await storage.createProject(projectWithUser);
       res.status(201).json(project);
     } catch (error) {
       console.error("Error creating project:", error);
@@ -155,9 +157,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/projects/:id", async (req, res) => {
+  app.get("/api/projects/:id", authMiddleware, async (req: any, res) => {
     try {
-      const project = await storage.getProject(req.params.id);
+      const project = await storage.getProject(req.params.id, req.user.id);
       if (!project) {
         return res.status(404).json({ message: "Project not found" });
       }
@@ -168,8 +170,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/projects/:id", async (req, res) => {
+  app.put("/api/projects/:id", authMiddleware, async (req: any, res) => {
     try {
+      // Verify user owns the project first
+      const existingProject = await storage.getProject(req.params.id, req.user.id);
+      if (!existingProject) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
       const projectData = insertProjectSchema.partial().parse(req.body);
       const project = await storage.updateProject(req.params.id, projectData);
       res.json(project);
@@ -179,8 +187,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/projects/:id", async (req, res) => {
+  app.delete("/api/projects/:id", authMiddleware, async (req: any, res) => {
     try {
+      // Verify user owns the project first
+      const existingProject = await storage.getProject(req.params.id, req.user.id);
+      if (!existingProject) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
       await storage.deleteProject(req.params.id);
       res.status(204).send();
     } catch (error: any) {
@@ -272,7 +286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Enhanced project creation with automatic spec source creation and monitoring setup
-  app.post("/api/projects/setup", async (req, res) => {
+  app.post("/api/projects/setup", authMiddleware, async (req: any, res) => {
     try {
       const { name, github_repo, discovered_specs = [], alert_configs = [] } = req.body;
       
@@ -283,7 +297,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name,
         github_repo,
         monitoring_frequency: 'daily',
-        is_active: true
+        is_active: true,
+        user_id: req.user.id // Add user_id for proper user scoping
       });
 
       console.log(`✅ Project created: ${project.id} - ${project.name}`);
@@ -536,10 +551,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Dashboard stats
-  app.get("/api/dashboard/stats", async (req, res) => {
+  app.get("/api/dashboard/stats", authMiddleware, async (req: any, res) => {
     try {
-      const stats = await storage.getDashboardStats();
-      const recentChanges = await storage.getRecentChangeAnalyses(5);
+      const stats = await storage.getDashboardStats(req.user.id);
+      const recentChanges = await storage.getRecentChangeAnalyses(5, req.user.id);
       res.json({ stats, recentChanges });
     } catch (error) {
       console.error("Error fetching dashboard stats:", error);

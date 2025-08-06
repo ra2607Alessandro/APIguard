@@ -6,6 +6,7 @@ import { z } from "zod";
 
 export const projects = pgTable("projects", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar("user_id").references(() => users.id).notNull(),
   name: text("name").notNull(),
   github_repo: text("github_repo"),
   monitoring_frequency: text("monitoring_frequency").default('daily'),
@@ -99,7 +100,11 @@ export const monitoring_configs = pgTable("monitoring_configs", {
 });
 
 // Relations
-export const projectsRelations = relations(projects, ({ many }) => ({
+export const projectsRelations = relations(projects, ({ one, many }) => ({
+  user: one(users, {
+    fields: [projects.user_id],
+    references: [users.id],
+  }),
   specSources: many(spec_sources),
   environments: many(environments),
   schemaVersions: many(schema_versions),

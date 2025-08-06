@@ -46,8 +46,8 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
 
   // Project methods
-  getProjects(): Promise<Project[]>;
-  getProject(id: string): Promise<Project | undefined>;
+  getProjects(userId?: string): Promise<Project[]>;
+  getProject(id: string, userId?: string): Promise<Project | undefined>;
   createProject(project: InsertProject): Promise<Project>;
   updateProject(id: string, project: Partial<InsertProject>): Promise<Project>;
   updateProjectHealth(id: string, healthStatus: string): Promise<void>;
@@ -72,7 +72,7 @@ export interface IStorage {
 
   // Change analysis methods
   getChangeAnalyses(projectId: string): Promise<ChangeAnalysis[]>;
-  getRecentChangeAnalyses(limit?: number): Promise<ChangeAnalysis[]>;
+  getRecentChangeAnalyses(limit?: number, userId?: string): Promise<ChangeAnalysis[]>;
   createChangeAnalysis(analysis: InsertChangeAnalysis): Promise<ChangeAnalysis>;
 
   // Alert config methods
@@ -91,7 +91,7 @@ export interface IStorage {
   updateMonitoringConfig(id: string, config: Partial<InsertMonitoringConfig>): Promise<MonitoringConfig>;
 
   // Dashboard stats
-  getDashboardStats(): Promise<{
+  getDashboardStats(userId?: string): Promise<{
     activeProjects: number;
     breakingChanges: number;
     safeChanges: number;
@@ -138,11 +138,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Project methods
-  async getProjects(): Promise<Project[]> {
+  async getProjects(userId?: string): Promise<Project[]> {
+    if (userId) {
+      return await db.select().from(projects).where(eq(projects.user_id, userId)).orderBy(desc(projects.created_at));
+    }
     return await db.select().from(projects).orderBy(desc(projects.created_at));
   }
 
-  async getProject(id: string): Promise<Project | undefined> {
+  async getProject(id: string, userId?: string): Promise<Project | undefined> {
+    if (userId) {
+      const [project] = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.user_id, userId)));
+      return project || undefined;
+    }
     const [project] = await db.select().from(projects).where(eq(projects.id, id));
     return project || undefined;
   }
@@ -334,7 +341,26 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(change_analyses.created_at));
   }
 
-  async getRecentChangeAnalyses(limit: number = 10): Promise<ChangeAnalysis[]> {
+  async getRecentChangeAnalyses(limit: number = 10, userId?: string): Promise<ChangeAnalysis[]> {
+    if (userId) {
+      return await db
+        .select({
+          id: change_analyses.id,
+          project_id: change_analyses.project_id,
+          old_version_id: change_analyses.old_version_id,
+          new_version_id: change_analyses.new_version_id,
+          breaking_changes: change_analyses.breaking_changes,
+          non_breaking_changes: change_analyses.non_breaking_changes,
+          analysis_summary: change_analyses.analysis_summary,
+          severity: change_analyses.severity,
+          created_at: change_analyses.created_at,
+        })
+        .from(change_analyses)
+        .innerJoin(projects, eq(change_analyses.project_id, projects.id))
+        .where(eq(projects.user_id, userId))
+        .orderBy(desc(change_analyses.created_at))
+        .limit(limit);
+    }
     return await db
       .select()
       .from(change_analyses)
@@ -436,7 +462,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Dashboard stats
-  async getDashboardStats(): Promise<{
+  async getDashboardStats(userId?: string): Promise<{
     activeProjects: number;
     breakingChanges: number;
     safeChanges: number;
@@ -445,25 +471,45 @@ export class DatabaseStorage implements IStorage {
     const now = new Date();
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
+    // Build base conditions for user filtering
+    const userCondition = userId ? eq(projects.user_id, userId) : sql`true`;
+    const projectFilter = userId ? and(
+      eq(projects.user_id, userId),
+      eq(projects.id, change_analyses.project_id)
+    ) : sql`true`;
+
     const [activeProjectsResult] = await db
       .select({ count: sql<number>`count(*)` })
       .from(projects)
-      .where(eq(projects.is_active, true));
+      .where(and(eq(projects.is_active, true), userCondition));
 
+    // For change analyses, we need to join with projects to filter by user
     const [breakingChangesResult] = await db
       .select({ count: sql<number>`count(*)` })
       .from(change_analyses)
-      .where(eq(change_analyses.severity, 'critical'));
+      .innerJoin(projects, eq(change_analyses.project_id, projects.id))
+      .where(and(
+        eq(change_analyses.severity, 'critical'),
+        userId ? eq(projects.user_id, userId) : sql`true`
+      ));
 
     const [safeChangesResult] = await db
       .select({ count: sql<number>`count(*)` })
       .from(change_analyses)
-      .where(eq(change_analyses.severity, 'low'));
+      .innerJoin(projects, eq(change_analyses.project_id, projects.id))
+      .where(and(
+        eq(change_analyses.severity, 'low'),
+        userId ? eq(projects.user_id, userId) : sql`true`
+      ));
 
     const [last24hResult] = await db
       .select({ count: sql<number>`count(*)` })
       .from(change_analyses)
-      .where(sql`${change_analyses.created_at} >= ${yesterday}`);
+      .innerJoin(projects, eq(change_analyses.project_id, projects.id))
+      .where(and(
+        sql`${change_analyses.created_at} >= ${yesterday}`,
+        userId ? eq(projects.user_id, userId) : sql`true`
+      ));
 
     return {
       activeProjects: activeProjectsResult?.count || 0,

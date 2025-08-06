@@ -24,14 +24,27 @@ export async function login(data: { email: string; password: string }) {
 }
 
 function generateToken(user: User) {
-  return jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign(
+    { 
+      userId: user.id, 
+      username: user.username,
+      iat: Math.floor(Date.now() / 1000)
+    }, 
+    JWT_SECRET, 
+    { expiresIn: '7d' }
+  );
 }
 
 export function authMiddleware(req: any, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; username: string; iat: number };
+    req.user = {
+      id: decoded.userId,
+      userId: decoded.userId,
+      username: decoded.username
+    };
     next();
   } catch { 
     res.status(401).json({ error: 'Invalid token' }); 
