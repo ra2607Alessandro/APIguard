@@ -37,7 +37,10 @@ function generateToken(user: User) {
 
 export function authMiddleware(req: any, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  if (!token) {
+    console.log('Auth middleware: No token provided');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; username: string; iat: number };
     req.user = {
@@ -45,8 +48,10 @@ export function authMiddleware(req: any, res: Response, next: NextFunction) {
       userId: decoded.userId,
       username: decoded.username
     };
+    console.log('Auth middleware: Token valid for user:', decoded.userId);
     next();
-  } catch { 
+  } catch (error) { 
+    console.log('Auth middleware: Invalid token:', error);
     res.status(401).json({ error: 'Invalid token' }); 
   }
 }

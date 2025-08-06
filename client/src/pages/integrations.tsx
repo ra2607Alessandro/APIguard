@@ -102,16 +102,23 @@ export default function Integrations() {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to get authorization URL');
+        throw new Error(`Authorization failed: ${response.status}`);
+      }
+      
+      // Check if response is JSON before parsing
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        throw new Error('Server returned non-JSON response');
       }
       
       const data = await response.json();
       // Redirect to GitHub OAuth authorization
       window.location.href = data.authUrl;
-    } catch (error) {
+    } catch (error: any) {
+      console.error('GitHub OAuth error:', error);
       toast({
-        title: "Connection Error",
-        description: "Failed to initiate GitHub connection.",
+        title: "Connection Error", 
+        description: error.message || "Failed to initiate GitHub connection.",
         variant: "destructive",
       });
     }

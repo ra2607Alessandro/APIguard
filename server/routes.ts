@@ -58,9 +58,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GitHub OAuth routes
   app.get("/api/auth/github/authorize", authMiddleware, async (req: any, res) => {
     try {
+      console.log('GitHub OAuth authorize request from user:', req.user?.id);
       const authURL = getGitHubAuthURL(req.user.id);
+      console.log('Generated auth URL:', authURL);
       res.json({ authUrl: authURL });
     } catch (error: any) {
+      console.error('GitHub OAuth authorize error:', error);
       res.status(400).json({ error: error.message });
     }
   });
