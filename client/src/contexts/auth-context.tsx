@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
+import { queryClient } from "@/lib/queryClient";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -28,12 +29,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("auth-token", newToken);
     setToken(newToken);
     setIsAuthenticated(true);
+    // Clear all cached queries and refetch data with new auth
+    queryClient.clear();
   };
 
   const logout = () => {
     localStorage.removeItem("auth-token");
     setToken(null);
     setIsAuthenticated(false);
+    // Clear all cached queries on logout
+    queryClient.clear();
   };
 
   return (

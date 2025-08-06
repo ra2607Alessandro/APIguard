@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -19,6 +19,7 @@ import { AuthProvider, useAuth } from "@/contexts/auth-context";
 
 function Router() {
   const { isAuthenticated, token, isLoading } = useAuth();
+  const [location, setLocation] = useLocation();
   
   // Add loading state while auth is being determined
   if (isLoading) {
@@ -34,10 +35,22 @@ function Router() {
       {isAuthenticated && <Navigation />}
       <Switch>
         <Route path="/login">
-          {() => isAuthenticated ? <Redirect to="/dashboard" /> : <LoginPage />}
+          {() => {
+            if (isAuthenticated) {
+              setLocation("/dashboard");
+              return null;
+            }
+            return <LoginPage />;
+          }}
         </Route>
         <Route path="/signup">
-          {() => isAuthenticated ? <Redirect to="/dashboard" /> : <SignupPage />}
+          {() => {
+            if (isAuthenticated) {
+              setLocation("/dashboard");
+              return null;
+            }
+            return <SignupPage />;
+          }}
         </Route>
         <Route path="/auth/github/callback">
           {() => {
@@ -62,7 +75,12 @@ function Router() {
         </Route>
         {isAuthenticated ? (
           <>
-            <Route path="/" component={() => <Redirect to="/dashboard" />} />
+            <Route path="/">
+              {() => {
+                setLocation("/dashboard");
+                return null;
+              }}
+            </Route>
             <Route path="/dashboard" component={Dashboard} />
             <Route path="/projects" component={Projects} />
             <Route path="/monitoring" component={Monitoring} />
@@ -73,23 +91,18 @@ function Router() {
             <Route component={NotFound} />
           </>
         ) : (
-          <Route component={() => <Redirect to="/login" />} />
+          <>
+            <Route path="/" component={LoginPage} />
+            <Route path="/signup" component={SignupPage} />
+            <Route component={LoginPage} />
+          </>
         )}
       </Switch>
     </div>
   );
 }
 
-// Simple redirect component for wouter
-function Redirect({ to }: { to: string }) {
-  const [, setLocation] = useLocation();
-  
-  React.useEffect(() => {
-    setLocation(to);
-  }, [to, setLocation]);
-  
-  return null;
-}
+
 
 function App() {
   return (
