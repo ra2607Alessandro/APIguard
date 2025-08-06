@@ -56,10 +56,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GitHub OAuth routes
-  app.get("/api/auth/github", authMiddleware, async (req: any, res) => {
+  app.get("/api/auth/github/authorize", authMiddleware, async (req: any, res) => {
     try {
       const authURL = getGitHubAuthURL(req.user.id);
-      res.json({ authURL });
+      res.json({ authUrl: authURL });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -71,12 +71,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const accessToken = await exchangeCodeForToken(code);
       const githubUser = await getGitHubUser(accessToken);
       
-      // Save encrypted token
-      await saveUserGitHubToken(req.user.id, accessToken);
+      // Save encrypted token and user info
+      await saveUserGitHubToken(req.user.id, accessToken, githubUser);
       
       res.json({ 
         success: true, 
-        githubUser: { login: githubUser.login, name: githubUser.name } 
+        githubUser: { login: githubUser.login, name: githubUser.name, id: githubUser.id } 
       });
     } catch (error: any) {
       res.status(400).json({ error: error.message });

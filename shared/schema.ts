@@ -263,6 +263,10 @@ export const users = pgTable("users", {
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
   github_access_token: text("github_access_token"), // Encrypted token
+  github_username: text("github_username"),
+  github_user_id: text("github_user_id"),
+  github_connected_at: timestamp("github_connected_at"),
+  github_scopes: text("github_scopes"),
 });
 
 export const user_projects = pgTable("user_projects", {

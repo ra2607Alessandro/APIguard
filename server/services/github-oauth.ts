@@ -9,9 +9,13 @@ const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID!;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET!;
 
 export function getGitHubAuthURL(state: string = '') {
+  const baseUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
+    ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+    : 'http://localhost:5000';
+  
   const params = new URLSearchParams({
     client_id: GITHUB_CLIENT_ID,
-    redirect_uri: `${process.env.REPLIT_DOMAINS?.split(',')[0] || 'http://localhost:5000'}/auth/github/callback`,
+    redirect_uri: `${baseUrl}/auth/github/callback`,
     scope: 'repo,user:email',
     state,
   });
@@ -48,11 +52,17 @@ export async function getUserRepositories(accessToken: string) {
   return repos;
 }
 
-export async function saveUserGitHubToken(userId: string, accessToken: string) {
+export async function saveUserGitHubToken(userId: string, accessToken: string, githubUser: any) {
   const encryptedToken = encryptToken(accessToken);
   await db
     .update(users)
-    .set({ github_access_token: encryptedToken })
+    .set({ 
+      github_access_token: encryptedToken,
+      github_username: githubUser.login,
+      github_user_id: String(githubUser.id),
+      github_connected_at: new Date(),
+      github_scopes: 'repo,user:email'
+    })
     .where(eq(users.id, userId));
 }
 
@@ -80,7 +90,6 @@ export async function createProjectFromRepo(userId: string, repoData: any) {
   await db.insert(user_projects).values({
     user_id: userId,
     project_id: project.id,
-    role: 'owner',
   });
 
   return project;

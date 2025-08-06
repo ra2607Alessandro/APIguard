@@ -53,7 +53,6 @@ export default function Integrations() {
     mutationFn: (installationId: number) => 
       apiRequest(`/api/github/installation/${installationId}?userId=default-user`, {
         method: 'DELETE',
-        body: JSON.stringify({}),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/github/installations'] });
@@ -76,7 +75,7 @@ export default function Integrations() {
     mutationFn: ({ repository, installationId }: { repository: string; installationId: number }) =>
       apiRequest('/api/discovery/repository-with-installation', {
         method: 'POST',
-        body: JSON.stringify({ repository, installationId }),
+        body: { repository, installationId },
       }),
     onSuccess: (data) => {
       toast({
@@ -93,15 +92,26 @@ export default function Integrations() {
     },
   });
 
-  const handleInstallGitHubApp = () => {
-    // Redirect to GitHub App installation URL
-    const appId = import.meta.env.VITE_GITHUB_APP_ID;
-    if (appId) {
-      window.open(`https://github.com/apps/your-app-name/installations/new`, '_blank');
-    } else {
+  const handleInstallGitHubApp = async () => {
+    try {
+      // Get GitHub OAuth authorization URL from backend
+      const response = await fetch('/api/auth/github/authorize', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth-token')}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to get authorization URL');
+      }
+      
+      const data = await response.json();
+      // Redirect to GitHub OAuth authorization
+      window.location.href = data.authUrl;
+    } catch (error) {
       toast({
-        title: "Configuration Error",
-        description: "GitHub App ID not configured.",
+        title: "Connection Error",
+        description: "Failed to initiate GitHub connection.",
         variant: "destructive",
       });
     }
@@ -132,10 +142,10 @@ export default function Integrations() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Github className="h-5 w-5" />
-              GitHub App
+              GitHub Integration
             </CardTitle>
             <CardDescription>
-              Install the GitHub App to access your private repositories and enable automatic monitoring.
+              Connect your GitHub account to access your repositories and enable automatic monitoring.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -188,7 +198,7 @@ export default function Integrations() {
                   className="w-full"
                 >
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  Install GitHub App
+                  Connect GitHub Account
                 </Button>
               </>
             )}
