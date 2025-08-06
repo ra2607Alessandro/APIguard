@@ -11,8 +11,10 @@ import { queryClient } from "@/lib/queryClient";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/contexts/auth-context";
 
 export default function Projects() {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [showSetupWizard, setShowSetupWizard] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -20,6 +22,7 @@ export default function Projects() {
   const { data: projects = [], isLoading, error } = useQuery({
     queryKey: ["/api/projects"],
     queryFn: () => api.getProjects(),
+    enabled: isAuthenticated && !authLoading,
   });
 
   const deleteProjectMutation = useMutation({
@@ -28,6 +31,20 @@ export default function Projects() {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
     },
   });
+
+  // Show loading while auth is being determined
+  if (authLoading) {
+    return (
+      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        <div>Loading projects...</div>
+      </main>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
 
   if (error) {
     return (

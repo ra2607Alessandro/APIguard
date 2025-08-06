@@ -45,13 +45,16 @@ export function LoginPage() {
       }
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       login(data.token);
       toast({
         title: "Login successful",
         description: "Welcome back!",
       });
-      setLocation("/dashboard");
+      // Small delay to ensure auth state updates properly
+      setTimeout(() => {
+        setLocation("/dashboard");
+      }, 100);
     },
     onError: (error: any) => {
       toast({

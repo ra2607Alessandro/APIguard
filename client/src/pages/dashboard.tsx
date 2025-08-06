@@ -10,21 +10,39 @@ import { api } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
 import type { DashboardStats, RecentChange, ProjectHealth } from "@/types";
 
 export default function Dashboard() {
   console.log("Dashboard component rendering");
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [showSetupWizard, setShowSetupWizard] = useState(false);
 
   const { data: dashboardData, isLoading, error, refetch } = useQuery({
     queryKey: ["/api/dashboard/stats"],
     queryFn: () => api.getDashboardStats(),
+    enabled: isAuthenticated && !authLoading,
   });
 
   const { data: projects = [], isLoading: projectsLoading } = useQuery({
     queryKey: ["/api/projects"],
     queryFn: () => api.getProjects(),
+    enabled: isAuthenticated && !authLoading,
   });
+
+  // Show loading while auth is being determined
+  if (authLoading) {
+    return (
+      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        <div>Loading dashboard...</div>
+      </main>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
 
   if (error) {
     return (

@@ -35,22 +35,10 @@ function Router() {
       {isAuthenticated && <Navigation />}
       <Switch>
         <Route path="/login">
-          {() => {
-            if (isAuthenticated) {
-              setLocation("/dashboard");
-              return null;
-            }
-            return <LoginPage />;
-          }}
+          {() => isAuthenticated ? <AuthenticatedRedirect to="/dashboard" /> : <LoginPage />}
         </Route>
         <Route path="/signup">
-          {() => {
-            if (isAuthenticated) {
-              setLocation("/dashboard");
-              return null;
-            }
-            return <SignupPage />;
-          }}
+          {() => isAuthenticated ? <AuthenticatedRedirect to="/dashboard" /> : <SignupPage />}
         </Route>
         <Route path="/auth/github/callback">
           {() => {
@@ -76,10 +64,7 @@ function Router() {
         {isAuthenticated ? (
           <>
             <Route path="/">
-              {() => {
-                setLocation("/dashboard");
-                return null;
-              }}
+              {() => <AuthenticatedRedirect to="/dashboard" />}
             </Route>
             <Route path="/dashboard" component={Dashboard} />
             <Route path="/projects" component={Projects} />
@@ -102,7 +87,16 @@ function Router() {
   );
 }
 
-
+// Proper redirect component using useEffect
+function AuthenticatedRedirect({ to }: { to: string }) {
+  const [, setLocation] = useLocation();
+  
+  useEffect(() => {
+    setLocation(to);
+  }, [to, setLocation]);
+  
+  return null;
+}
 
 function App() {
   return (

@@ -29,8 +29,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("auth-token", newToken);
     setToken(newToken);
     setIsAuthenticated(true);
-    // Clear all cached queries and refetch data with new auth
+    // Clear all cached queries and invalidate to refetch with new auth
     queryClient.clear();
+    queryClient.invalidateQueries();
   };
 
   const logout = () => {

@@ -53,13 +53,16 @@ export function SignupPage() {
       }
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       login(data.token);
       toast({
         title: "Account created successfully",
         description: "Welcome to API Sentinel!",
       });
-      setLocation("/dashboard");
+      // Small delay to ensure auth state updates properly
+      setTimeout(() => {
+        setLocation("/dashboard");
+      }, 100);
     },
     onError: (error: any) => {
       toast({
