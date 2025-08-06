@@ -1,0 +1,181 @@
+## **Rewritten Prompt for Replit with Enhanced Technical Specificity**
+
+I've rewritten the prompt to be more technically detailed, incorporating specific file paths, schema changes, route definitions, code snippets, and a granular step-by-step plan. This draws from your codebase structure (e.g., shared/schema.ts for DB, server/routes.ts for API, server/services/github.ts for GitHub logic, and client/src/App.tsx for frontend routing). It emphasizes efficiency, reusability (e.g., building on existing GitHub App setup), and progressive implementation. The format uses markdown for clarity, with numbered steps, code blocks, and explicit instructions.
+
+---
+
+**Prompt for Replit:**
+
+**Project: API Sentinel - Implement GitHub User Authentication for Multi-User Repo Access**
+
+**Overview:**  
+Add GitHub OAuth authentication to allow users to connect their personal GitHub accounts, enabling access to their public/private repos for API spec scanning. This extends the system to multi-tenancy, associating projects with users and using user-specific tokens for scans. Build on existing codebase:  
+- Use `shared/schema.ts` for schema updates (existing `users` table at lines ~256-260).  
+- Extend `server/services/github.ts` for OAuth logic.  
+- Update `server/routes.ts` for new routes.  
+- Modify `server/services/github-monitor.ts` and `server/services/repositoryScanner.ts` to use user tokens.  
+- Integrate frontend in `client/src/App.tsx` (router at lines ~16-32) and add UI components.  
+
+Transform the app from single-account (limited to "ra2607Alessandro") to multi-user SaaS. Focus on minimal, functional changes—no advanced polish like UI animations. Assume env vars are set (add if missing). Output as file diffs or full updated files.
+
+**Prerequisites:**  
+1. Install dependencies: Run `npm install @octokit/core @octokit/auth-oauth-app bcrypt jsonwebtoken` (for Octokit, auth, password hashing, JWT sessions).  
+2. Environment Variables: Ensure these are set (use your GitHub App values):  
+   - `GITHUB_CLIENT_ID=Iv23lis8RMHGyBzlzErg`  
+   - `GITHUB_CLIENT_SECRET=622ef33db38bb351c8b634f18fee9ce662c6718e`  
+   - `GITHUB_APP_ID=1670756` (for potential App extension).  
+   - `JWT_SECRET=your-secret-key` (new, for session tokens).  
+   - `TOKEN_ENCRYPTION_KEY=32-byte-key` (for encrypting GitHub tokens).  
+3. OAuth Scopes: Request 'repo' and 'user' scopes for repo access and user info.
+
+**Step-by-Step Implementation Plan:**  
+
+1. **Database Schema Updates (shared/schema.ts):**  
+   Extend the existing `users` table to store encrypted GitHub tokens. Add a new `user_projects` table for multi-tenancy (linking users to projects).  
+   - At line ~260 (after users table), add:  
+     ```typescript  
+     export const users = pgTable("users", {  
+       // Existing fields...  
+       github_access_token: text("github_access_token"), // Encrypted token  
+     });  
+
+     export const user_projects = pgTable("user_projects", {  
+       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),  
+       user_id: varchar("user_id").references(() => users.id).notNull(),  
+       project_id: varchar("project_id").references(() => projects.id).notNull(),  
+       role: text("role").default('owner'), // 'owner', 'admin', 'viewer'  
+       created_at: timestamp("created_at").defaultNow(),  
+     });  
+
+     // Add relations at line ~294 (usersRelations):  
+     usersRelations = relations(users, ({ many }) => ({  
+       projects: many(user_projects),  
+     }));  
+
+     userProjectsRelations = relations(user_projects, ({ one }) => ({  
+       user: one(users, { fields: [user_projects.user_id], references: [users.id] }),  
+       project: one(projects, { fields: [user_projects.project_id], references: [projects.id] }),  
+     }));  
+     ```  
+   - Run migration: Create `migrations/003_add_github_auth.sql` with corresponding SQL (e.g., ALTER TABLE users ADD COLUMN github_access_token TEXT; CREATE TABLE user_projects...).
+
+2. **Backend: Basic User Authentication (server/routes.ts and new server/services/auth.ts):**  
+   Add email/password auth with JWT sessions. Protect routes with middleware.  
+   - Create `server/services/auth.ts`:  
+     ```typescript  
+     import jwt from 'jsonwebtoken';  
+     import bcrypt from 'bcrypt';  
+     import { db } from '../db'; // Adjust import  
+     import { users, type InsertUser } from '@shared/schema';  
+
+     export async function signup(data: { email: string; password: string }) {  
+       const hashed = await bcrypt.hash(data.password, 10);  
+       const user = await db.insert(users).values({ username: data.email, password: hashed }).returning();  
+       return generateToken(user[0]);  
+     }  
+
+     export async function login(data: { email: string; password: string }) {  
+       const user = await db.select().from(users).where(eq(users.username, data.email));  
+       if (!user[0] || !await bcrypt.compare(data.password, user[0].password)) throw new Error('Invalid credentials');  
+       return generateToken(user[0]);  
+     }  
+
+     function generateToken(user: any) {  
+       return jwt.sign({ id: user.id }, process.env.JWT_SECRET!, { expiresIn: '7d' });  
+     }  
+
+     export function authMiddleware(req: Request, res: Response, next: NextFunction) {  
+       const token = req.headers.authorization?.split(' ')[1];  
+       if (!token) return res.status(401).json({ error: 'Unauthorized' });  
+       try {  
+         req.user = jwt.verify(token, process.env.JWT_SECRET!);  
+         next();  
+       } catch { res.status(401).json({ error: 'Invalid token' }); }  
+     }  
+     ```  
+   - In `server/routes.ts` (around line ~25, after app setup):  
+     ```typescript  
+     app.post('/api/auth/signup', async (req, res) => { res.json(await signup(req.body)); });  
+     app.post('/api/auth/login', async (req, res) => { res.json(await login(req.body)); });  
+     app.use('/api/*', authMiddleware); // Protect all API routes  
+     ```
+
+3. **Backend: GitHub OAuth Integration (server/services/github.ts):**  
+   Handle OAuth flow, token storage (encrypt using crypto with TOKEN_ENCRYPTION_KEY), and repo operations.  
+   - Update `server/services/github.ts` (extend existing class):  
+     ```typescript  
+     import { Octokit } from '@octokit/core';  
+     import { createOAuthAppAuth } from '@octokit/auth-oauth-app';  
+
+     // Add methods:  
+     async startOAuth(req: Request) {  
+       const auth = createOAuthAppAuth({ clientId: process.env.GITHUB_CLIENT_ID!, clientSecret: process.env.GITHUB_CLIENT_SECRET! });  
+       const url = auth.createAuthorizationUrl({ scopes: ['repo', 'user'] });  
+       return url;  
+     }  
+
+     async handleCallback(code: string, userId: string) {  
+       const auth = createOAuthAppAuth({ /* same */ });  
+       const { token } = await auth({ type: 'token', code });  
+       const encrypted = encryptToken(token); // Implement encrypt/decrypt using crypto  
+       await db.update(users).set({ github_access_token: encrypted }).where(eq(users.id, userId));  
+       return token;  
+     }  
+
+     async getUserOctokit(userId: string) {  
+       const user = await db.select().from(users).where(eq(users.id, userId));  
+       const token = decryptToken(user[0].github_access_token);  
+       return new Octokit({ auth: token });  
+     }  
+
+     async listRepos(userId: string) {  
+       const octokit = await getUserOctokit(userId);  
+       return octokit.request('GET /user/repos');  
+     }  
+     ```  
+   - In `server/routes.ts`:  
+     ```typescript  
+     app.get('/api/github/oauth/start', authMiddleware, (req, res) => res.redirect(githubService.startOAuth()));  
+     app.get('/api/github/oauth/callback', authMiddleware, async (req, res) => {  
+       await githubService.handleCallback(req.query.code, req.user.id);  
+       res.redirect('/projects?connected=true');  
+     });  
+     app.get('/api/github/repositories', authMiddleware, async (req, res) => res.json(await githubService.listRepos(req.user.id)));  
+     app.post('/api/projects/add-repo', authMiddleware, async (req, res) => {  
+       // Logic: Create project, insert into user_projects, trigger scan using user token  
+     });  
+     ```
+
+4. **Backend: Update Scanning Services (server/services/github-monitor.ts and repositoryScanner.ts):**  
+   Replace global token with user-specific.  
+   - In both files (e.g., lines where Octokit is initialized):  
+     ```typescript  
+     // Change: const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });  
+     // To: const octokit = await githubService.getUserOctokit(userId); // Pass userId from route  
+     ```  
+   - Ensure scans query projects via user_projects for isolation (e.g., and(eq(user_projects.user_id, userId)) in queries).
+
+5. **Frontend Integration (client/src/App.tsx and New Components):**  
+   Add auth routes and UI.  
+   - In `client/src/App.tsx` (Router at lines ~16-32):  
+     ```typescript  
+     // Add imports: import Login from '@/pages/login'; import Signup from '@/pages/signup';  
+     // In Switch:  
+     <Route path="/login" component={Login} />  
+     <Route path="/signup" component={Signup} />  
+     // Wrap protected routes in auth check (use React Context or hook).  
+     ```  
+   - Create `client/src/pages/login.tsx` and `signup.tsx`: Simple forms calling /api/auth endpoints.  
+   - In `client/src/pages/projects.tsx` (or integrations): Add "Connect GitHub" button (link to /api/github/oauth/start), repo list component (fetch /api/github/repositories), and selection UI to call /api/projects/add-repo.
+
+6. **Testing and Security:**  
+   - Test flow: Signup → Login → Connect GitHub → List repos → Add repo → Scan (verify uses user token).  
+   - Security: Implement encrypt/decrypt in auth.ts using crypto.createCipheriv (AES-256). Handle token expiry with refresh.  
+   - Edge Cases: Invalid token, no access to repo, multi-user isolation.  
+   - Run full tests on Replit dev env.
+
+Provide changes as diffs (e.g., --- old +++ new) or updated files. Ensure code is TypeScript-compliant and error-handled.
+
+--- 
+
+This rewritten prompt is now ~800 words, with precise technical details (e.g., line references, code snippets) for better guidance. It should yield a more accurate implementation from Replit. If you need further tweaks, let me know!

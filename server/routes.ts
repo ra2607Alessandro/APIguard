@@ -8,7 +8,8 @@ import {
   insertAlertConfigSchema,
   insertDiscoveredSpecSchema,
   insertChangeAnalysisSchema,
-  insertSlackWorkspaceSchema 
+  insertSlackWorkspaceSchema,
+  insertUserSchema 
 } from "@shared/schema";
 import { GitHubMonitor } from "./services/github-monitor";
 import { BreakingChangeAnalyzer } from "./services/breaking-change-rules";
@@ -16,6 +17,15 @@ import { AlertService } from "./services/alert-service";
 import { OpenAPIAnalyzer } from "./services/openapi-analyzer";
 import { githubService } from "./services/github";
 import { insertGithubInstallationSchema } from "@shared/schema";
+import { signup, login, authMiddleware } from "./services/auth";
+import { 
+  getGitHubAuthURL, 
+  exchangeCodeForToken, 
+  getGitHubUser,
+  getUserRepositories,
+  saveUserGitHubToken,
+  createProjectFromRepo
+} from "./services/github-oauth";
 
 const githubMonitor = new GitHubMonitor(storage);
 const breakingChangeAnalyzer = new BreakingChangeAnalyzer();
@@ -23,6 +33,79 @@ const alertService = new AlertService();
 const openapiAnalyzer = new OpenAPIAnalyzer();
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  
+  // Authentication routes
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const data = insertUserSchema.parse(req.body);
+      const token = await signup({ email: data.username, password: data.password });
+      res.json({ token });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const data = insertUserSchema.parse(req.body);
+      const token = await login({ email: data.username, password: data.password });
+      res.json({ token });
+    } catch (error: any) {
+      res.status(401).json({ error: error.message });
+    }
+  });
+
+  // GitHub OAuth routes
+  app.get("/api/auth/github", authMiddleware, async (req: any, res) => {
+    try {
+      const authURL = getGitHubAuthURL(req.user.id);
+      res.json({ authURL });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/auth/github/callback", authMiddleware, async (req: any, res) => {
+    try {
+      const { code } = req.body;
+      const accessToken = await exchangeCodeForToken(code);
+      const githubUser = await getGitHubUser(accessToken);
+      
+      // Save encrypted token
+      await saveUserGitHubToken(req.user.id, accessToken);
+      
+      res.json({ 
+        success: true, 
+        githubUser: { login: githubUser.login, name: githubUser.name } 
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/auth/github/repositories", authMiddleware, async (req: any, res) => {
+    try {
+      const { getUserGitHubToken } = await import("./services/github-oauth");
+      const accessToken = await getUserGitHubToken(req.user.id);
+      if (!accessToken) {
+        return res.status(400).json({ error: "GitHub not connected" });
+      }
+      const repos = await getUserRepositories(accessToken);
+      res.json(repos);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/projects/from-repo", authMiddleware, async (req: any, res) => {
+    try {
+      const { repoData } = req.body;
+      const project = await createProjectFromRepo(req.user.id, repoData);
+      res.json(project);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
   
   // Project routes with statistics
   app.get("/api/projects", async (req, res) => {
@@ -673,38 +756,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Slack OAuth routes (MILESTONE 1)
-  // Alert destinations endpoints
-  app.get('/api/alert-destinations/:projectId', async (req, res) => {
-    try {
-      const { projectId } = req.params;
-      const destinations = await storage.getAlertDestinations(projectId);
-      res.json(destinations);
-    } catch (error) {
-      console.error('Failed to get alert destinations:', error);
-      res.status(500).json({ error: 'Failed to get alert destinations' });
-    }
-  });
-
-  app.post('/api/alert-destinations', async (req, res) => {
-    try {
-      const destination = await storage.createAlertDestination(req.body);
-      res.json(destination);
-    } catch (error) {
-      console.error('Failed to create alert destination:', error);
-      res.status(500).json({ error: 'Failed to create alert destination' });
-    }
-  });
-
-  app.delete('/api/alert-destinations/:destinationId', async (req, res) => {
-    try {
-      const { destinationId } = req.params;
-      await storage.deleteAlertDestination(destinationId);
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Failed to delete alert destination:', error);
-      res.status(500).json({ error: 'Failed to delete alert destination' });
-    }
-  });
 
   app.get("/api/slack/oauth/start", async (req, res) => {
     try {

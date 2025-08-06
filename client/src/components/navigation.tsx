@@ -1,19 +1,26 @@
 import { Link, useLocation } from "wouter";
-import { Shield, BarChart3, FolderOpen, Activity, Settings, Mail } from "lucide-react";
+import { Shield, BarChart3, FolderOpen, Activity, Settings, Mail, Github, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: BarChart3 },
   { path: "/projects", label: "Projects", icon: FolderOpen },
   { path: "/monitoring", label: "Monitoring", icon: Activity },
+  { path: "/github/connect", label: "GitHub", icon: Github },
   { path: "/settings/notifications/email", label: "Email Alerts", icon: Mail },
   { path: "/integrations", label: "Integrations", icon: Settings },
 ];
 
 export default function Navigation() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+  
+  const handleLogout = () => {
+    localStorage.removeItem("auth-token");
+    setLocation("/login");
+  };
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
@@ -47,16 +54,26 @@ export default function Navigation() {
             </div>
           </div>
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-3">
-              <Avatar className="h-8 w-8">
-                <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                  JD
-                </AvatarFallback>
-              </Avatar>
-              <span className="text-sm font-medium text-gray-700 hidden sm:block">
-                John Doe
-              </span>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="flex items-center space-x-3" data-testid="button-user-menu">
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="bg-primary text-primary-foreground text-sm">
+                      U
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm font-medium text-gray-700 hidden sm:block">
+                    User
+                  </span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleLogout} data-testid="button-logout">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>

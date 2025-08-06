@@ -257,6 +257,15 @@ export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+  github_access_token: text("github_access_token"), // Encrypted token
+});
+
+export const user_projects = pgTable("user_projects", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar("user_id").references(() => users.id).notNull(),
+  project_id: varchar("project_id").references(() => projects.id).notNull(),
+  role: text("role").default('owner'), // 'owner', 'admin', 'viewer'
+  created_at: timestamp("created_at").defaultNow(),
 });
 
 // GitHub installations table
@@ -293,6 +302,12 @@ export const user_notifications = pgTable("user_notifications", {
 // Relations for users and installations
 export const usersRelations = relations(users, ({ many }) => ({
   githubInstallations: many(github_installations),
+  projects: many(user_projects),
+}));
+
+export const userProjectsRelations = relations(user_projects, ({ one }) => ({
+  user: one(users, { fields: [user_projects.user_id], references: [users.id] }),
+  project: one(projects, { fields: [user_projects.project_id], references: [projects.id] }),
 }));
 
 export const githubInstallationsRelations = relations(github_installations, ({ one }) => ({
@@ -331,8 +346,16 @@ export const insertUserNotificationSchema = createInsertSchema(user_notification
   created_at: true,
 });
 
+export const insertUserProjectSchema = createInsertSchema(user_projects).omit({
+  id: true,
+  created_at: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+export type InsertUserProject = z.infer<typeof insertUserProjectSchema>;
+export type UserProject = typeof user_projects.$inferSelect;
 
 export type InsertGithubInstallation = z.infer<typeof insertGithubInstallationSchema>;
 export type GithubInstallation = typeof github_installations.$inferSelect;

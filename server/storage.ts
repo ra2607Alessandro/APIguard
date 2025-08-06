@@ -9,6 +9,7 @@ import {
   monitoring_configs,
   users,
   user_notifications,
+  user_projects,
   slack_workspaces,
   type Project,
   type InsertProject,
@@ -29,7 +30,11 @@ import {
   type User,
   type InsertUser,
   type UserNotification,
-  type InsertUserNotification
+  type InsertUserNotification,
+  type UserProject,
+  type InsertUserProject,
+  type SlackWorkspace,
+  type InsertSlackWorkspace
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -105,6 +110,11 @@ export interface IStorage {
   getUserNotifications(projectId: string): Promise<UserNotification[]>;
   createUserNotification(notification: InsertUserNotification): Promise<UserNotification>;
   deleteUserNotification(id: string): Promise<void>;
+
+  // User project methods
+  getUserProjects(userId: string): Promise<Project[]>;
+  createUserProject(userProject: InsertUserProject): Promise<UserProject>;
+  deleteUserProject(userId: string, projectId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -566,25 +576,31 @@ export class DatabaseStorage implements IStorage {
     return this.decryptToken(workspace.access_token);
   }
 
-  // Alert destination methods
-  async getAlertDestinations(projectId: string): Promise<AlertDestination[]> {
-    return await db.select().from(alert_destinations).where(eq(alert_destinations.project_id, projectId));
+  // User project methods
+  async getUserProjects(userId: string): Promise<Project[]> {
+    const result = await db
+      .select({ project: projects })
+      .from(user_projects)
+      .innerJoin(projects, eq(user_projects.project_id, projects.id))
+      .where(eq(user_projects.user_id, userId));
+    return result.map(r => r.project);
   }
 
-  async createAlertDestination(destination: InsertAlertDestination): Promise<AlertDestination> {
-    const [newDestination] = await db
-      .insert(alert_destinations)
-      .values(destination)
+  async createUserProject(userProject: InsertUserProject): Promise<UserProject> {
+    const [newUserProject] = await db
+      .insert(user_projects)
+      .values(userProject)
       .returning();
-    return newDestination;
+    return newUserProject;
   }
 
-  async deleteAlertDestination(destinationId: string): Promise<void> {
-    await db.delete(alert_destinations).where(eq(alert_destinations.id, destinationId));
-  }
-
-  async getAlertDestinationsForProject(projectId: string): Promise<AlertDestination[]> {
-    return await db.select().from(alert_destinations).where(eq(alert_destinations.project_id, projectId));
+  async deleteUserProject(userId: string, projectId: string): Promise<void> {
+    await db
+      .delete(user_projects)
+      .where(and(
+        eq(user_projects.user_id, userId),
+        eq(user_projects.project_id, projectId)
+      ));
   }
 
   private encryptToken(token: string): string {
