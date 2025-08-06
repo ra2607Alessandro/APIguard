@@ -8,7 +8,8 @@ import { encryptToken, decryptToken } from './auth';
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID!;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET!;
 
-export function getGitHubAuthURL(state: string = '') {
+export function getGitHubAuthURL(userId: string) {
+  const state = Buffer.from(JSON.stringify({ userId, timestamp: Date.now() })).toString('base64');
   const baseUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
     ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
     : 'http://localhost:5000';

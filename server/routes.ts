@@ -109,6 +109,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(400).json({ error: error.message });
     }
   });
+
+  // Add after existing OAuth routes
+  app.get("/auth/github/callback", async (req, res) => {
+    try {
+      const { code, state } = req.query;
+      if (!code || !state) throw new Error("Invalid callback parameters");
+      
+      // Validate state
+      const decodedState = JSON.parse(Buffer.from(state as string, 'base64').toString());
+      if (Date.now() - decodedState.timestamp > 600000) throw new Error("State expired");  // 10-min expiry
+      
+      const accessToken = await exchangeCodeForToken(code as string);
+      const githubUser = await getGitHubUser(accessToken);
+      await saveUserGitHubToken(decodedState.userId, accessToken, githubUser);  // Use state.userId
+      
+      const frontendUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
+      res.redirect(`${frontendUrl}/integrations?connected=true`);  // Generalized redirect
+    } catch (error) {
+      console.error("OAuth callback error:", error);
+      const frontendUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
+      res.redirect(`${frontendUrl}/integrations?error=connection_failed`);
+    }
+  });
   
   // Project routes with statistics
   app.get("/api/projects", authMiddleware, async (req: any, res) => {

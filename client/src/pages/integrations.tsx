@@ -37,6 +37,27 @@ export default function Integrations() {
   const queryClient = useQueryClient();
   const [selectedInstallation, setSelectedInstallation] = useState<number | null>(null);
 
+  // Handle OAuth callback success/error
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('connected') === 'true') {
+      toast({
+        title: "GitHub Connected",
+        description: "Successfully connected your GitHub account!",
+      });
+      // Clear the URL parameters
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (urlParams.get('error') === 'connection_failed') {
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect your GitHub account. Please try again.",
+        variant: "destructive",
+      });
+      // Clear the URL parameters
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [toast]);
+
   // Fetch GitHub installations
   const { data: installations, isLoading: installationsLoading } = useQuery({
     queryKey: ['/api/github/installations'],
