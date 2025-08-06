@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Link, useLocation } from "wouter";
+import { useAuth } from "@/contexts/auth-context";
 
 const loginSchema = z.object({
   username: z.string().email("Please enter a valid email"),
@@ -21,6 +22,7 @@ type LoginData = z.infer<typeof loginSchema>;
 export function LoginPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { login } = useAuth();
   
   const form = useForm<LoginData>({
     resolver: zodResolver(loginSchema),
@@ -44,7 +46,7 @@ export function LoginPage() {
       return response.json();
     },
     onSuccess: (data) => {
-      localStorage.setItem("auth-token", data.token);
+      login(data.token);
       toast({
         title: "Login successful",
         description: "Welcome back!",

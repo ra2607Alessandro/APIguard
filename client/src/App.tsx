@@ -14,9 +14,10 @@ import { SignupPage } from "@/pages/signup";
 import { GitHubConnectPage } from "@/pages/github-connect";
 import Navigation from "@/components/navigation";
 import NotFound from "@/pages/not-found";
+import { AuthProvider, useAuth } from "@/contexts/auth-context";
 
 function Router() {
-  const isAuthenticated = !!localStorage.getItem("auth-token");
+  const { isAuthenticated, token } = useAuth();
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -34,7 +35,7 @@ function Router() {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${localStorage.getItem("auth-token")}`
+                  'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({ code })
               }).then(() => {
@@ -74,10 +75,12 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Router />
+        </TooltipProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

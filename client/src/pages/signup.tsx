@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Link, useLocation } from "wouter";
+import { useAuth } from "@/contexts/auth-context";
 
 const signupSchema = z.object({
   username: z.string().email("Please enter a valid email"),
@@ -25,6 +26,7 @@ type SignupData = z.infer<typeof signupSchema>;
 export function SignupPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { login } = useAuth();
   
   const form = useForm<SignupData>({
     resolver: zodResolver(signupSchema),
@@ -52,7 +54,7 @@ export function SignupPage() {
       return response.json();
     },
     onSuccess: (data) => {
-      localStorage.setItem("auth-token", data.token);
+      login(data.token);
       toast({
         title: "Account created successfully",
         description: "Welcome to API Sentinel!",

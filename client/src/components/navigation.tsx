@@ -1,9 +1,10 @@
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { Shield, BarChart3, FolderOpen, Activity, Settings, Mail, Github, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/contexts/auth-context";
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: BarChart3 },
@@ -16,10 +17,15 @@ const navItems = [
 
 export default function Navigation() {
   const [location, setLocation] = useLocation();
+  const { logout } = useAuth();
   
   const handleLogout = () => {
-    localStorage.removeItem("auth-token");
+    logout();
     setLocation("/login");
+  };
+
+  const handleNavClick = (path: string) => {
+    setLocation(path);
   };
 
   return (
@@ -36,19 +42,19 @@ export default function Navigation() {
                 const Icon = item.icon;
                 const isActive = location === item.path;
                 return (
-                  <Link key={item.path} href={item.path}>
-                    <a
-                      className={cn(
-                        "inline-flex items-center px-1 pt-6 pb-4 text-sm font-medium border-b-2 transition-colors",
-                        isActive
-                          ? "text-primary border-primary"
-                          : "text-gray-500 hover:text-gray-700 border-transparent hover:border-gray-300"
-                      )}
-                    >
-                      <Icon className="h-4 w-4 mr-2" />
-                      {item.label}
-                    </a>
-                  </Link>
+                  <button
+                    key={item.path}
+                    onClick={() => handleNavClick(item.path)}
+                    className={cn(
+                      "inline-flex items-center px-1 pt-6 pb-4 text-sm font-medium border-b-2 transition-colors",
+                      isActive
+                        ? "text-primary border-primary"
+                        : "text-gray-500 hover:text-gray-700 border-transparent hover:border-gray-300"
+                    )}
+                  >
+                    <Icon className="h-4 w-4 mr-2" />
+                    {item.label}
+                  </button>
                 );
               })}
             </div>
