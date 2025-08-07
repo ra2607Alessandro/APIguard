@@ -34,6 +34,72 @@ const openapiAnalyzer = new OpenAPIAnalyzer();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
+  // Test route to verify callback URL accessibility
+  app.get("/api/auth/github/callback-test", (req, res) => {
+    console.log('Callback test route hit - OAuth callback URL is accessible');
+    res.json({ message: "OAuth callback URL is accessible", timestamp: new Date().toISOString() });
+  });
+
+  // CRITICAL: OAuth callback route using /api prefix to avoid Vite interception
+  app.get("/api/auth/github/callback", async (req, res) => {
+    // Set CORS headers
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    console.log('=== GITHUB OAUTH CALLBACK DEBUG ===');
+    console.log('Route handler called - OAuth callback received');
+    console.log('Request method:', req.method);
+    console.log('Request path:', req.path);
+    console.log('Query params:', req.query);
+    console.log('Headers:', req.headers);
+    console.log('Full URL:', req.url);
+    console.log('User agent:', req.get('User-Agent'));
+    
+    try {
+      const { code, state } = req.query;
+      console.log('Extracted code:', code ? 'present' : 'missing');
+      console.log('Extracted state:', state ? 'present' : 'missing');
+      
+      if (!code || !state) throw new Error("Invalid callback parameters");
+      
+      // Validate state
+      console.log('Decoding state:', state);
+      const decodedState = JSON.parse(Buffer.from(state as string, 'base64').toString());
+      console.log('Decoded state:', decodedState);
+      
+      if (Date.now() - decodedState.timestamp > 600000) throw new Error("State expired");  // 10-min expiry
+      
+      console.log('Exchanging code for token...');
+      const accessToken = await exchangeCodeForToken(code as string);
+      console.log('Got access token:', accessToken ? 'success' : 'failed');
+      
+      console.log('Getting GitHub user...');
+      const githubUser = await getGitHubUser(accessToken);
+      console.log('GitHub user:', githubUser);
+      
+      console.log('Saving user GitHub token...');
+      await saveUserGitHubToken(decodedState.userId, accessToken, githubUser);  // Use state.userId
+      console.log('Token saved successfully');
+      
+      const frontendUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
+      
+      console.log('Redirecting to:', `${frontendUrl}/integrations?connected=true`);
+      res.redirect(`${frontendUrl}/integrations?connected=true`);  // Generalized redirect
+    } catch (error) {
+      console.error("=== OAUTH CALLBACK ERROR ===");
+      console.error("Error details:", error);
+      console.error("Stack trace:", error instanceof Error ? error.stack : 'No stack trace');
+      
+      const frontendUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
+      res.redirect(`${frontendUrl}/integrations?error=connection_failed`);
+    }
+  });
+
   // Authentication routes
   app.post("/api/auth/signup", async (req, res) => {
     try {
@@ -123,65 +189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // OAuth callback route registered BEFORE other routes
-  app.get("/auth/github/callback", async (req, res) => {
-    // Set CORS headers
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
-    console.log('=== GITHUB OAUTH CALLBACK DEBUG ===');
-    console.log('Route handler called - OAuth callback received');
-    console.log('Request method:', req.method);
-    console.log('Request path:', req.path);
-    console.log('Query params:', req.query);
-    console.log('Headers:', req.headers);
-    console.log('Full URL:', req.url);
-    console.log('User agent:', req.get('User-Agent'));
-    
-    try {
-      const { code, state } = req.query;
-      console.log('Extracted code:', code ? 'present' : 'missing');
-      console.log('Extracted state:', state ? 'present' : 'missing');
-      
-      if (!code || !state) throw new Error("Invalid callback parameters");
-      
-      // Validate state
-      console.log('Decoding state:', state);
-      const decodedState = JSON.parse(Buffer.from(state as string, 'base64').toString());
-      console.log('Decoded state:', decodedState);
-      
-      if (Date.now() - decodedState.timestamp > 600000) throw new Error("State expired");  // 10-min expiry
-      
-      console.log('Exchanging code for token...');
-      const accessToken = await exchangeCodeForToken(code as string);
-      console.log('Got access token:', accessToken ? 'success' : 'failed');
-      
-      console.log('Getting GitHub user...');
-      const githubUser = await getGitHubUser(accessToken);
-      console.log('GitHub user:', githubUser);
-      
-      console.log('Saving user GitHub token...');
-      await saveUserGitHubToken(decodedState.userId, accessToken, githubUser);  // Use state.userId
-      console.log('Token saved successfully');
-      
-      const frontendUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
-        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-        : 'http://localhost:5000';
-      
-      console.log('Redirecting to:', `${frontendUrl}/integrations?connected=true`);
-      res.redirect(`${frontendUrl}/integrations?connected=true`);  // Generalized redirect
-    } catch (error) {
-      console.error("=== OAUTH CALLBACK ERROR ===");
-      console.error("Error details:", error);
-      console.error("Stack trace:", error instanceof Error ? error.stack : 'No stack trace');
-      
-      const frontendUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
-        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-        : 'http://localhost:5000';
-      res.redirect(`${frontendUrl}/integrations?error=connection_failed`);
-    }
-  });
+
   
   // Project routes with statistics
   app.get("/api/projects", authMiddleware, async (req: any, res) => {

@@ -16,7 +16,7 @@ export function getGitHubAuthURL(userId: string) {
   
   const params = new URLSearchParams({
     client_id: GITHUB_OAUTH_CLIENT_ID,
-    redirect_uri: `${baseUrl}/auth/github/callback`,
+    redirect_uri: `${baseUrl}/api/auth/github/callback`,
     scope: 'repo,user:email',
     state,
   });
