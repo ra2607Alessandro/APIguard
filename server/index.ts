@@ -4,11 +4,11 @@ import { setupVite, serveStatic, log } from "./vite";
 
 // At top of file, after imports
 function validateEnv() {
-  const required = ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'TOKEN_ENCRYPTION_KEY'];
+  const required = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'TOKEN_ENCRYPTION_KEY'];
   required.forEach(key => {
     if (!process.env[key]) throw new Error(`Missing required env var: ${key}`);
   });
-  console.log('Environment validated successfully');
+  console.log('✓ Environment validated successfully');
 }
 validateEnv();
 

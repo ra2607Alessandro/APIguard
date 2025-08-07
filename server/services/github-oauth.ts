@@ -5,8 +5,8 @@ import { users, user_projects, projects } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { encryptToken, decryptToken } from './auth';
 
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID!.trim();
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET!.trim();
+const GITHUB_OAUTH_CLIENT_ID = process.env.GITHUB_OAUTH_CLIENT_ID!.trim();
+const GITHUB_OAUTH_CLIENT_SECRET = process.env.GITHUB_OAUTH_CLIENT_SECRET!.trim();
 
 export function getGitHubAuthURL(userId: string) {
   const state = Buffer.from(JSON.stringify({ userId, timestamp: Date.now() })).toString('base64');
@@ -15,7 +15,7 @@ export function getGitHubAuthURL(userId: string) {
     : 'http://localhost:5000';
   
   const params = new URLSearchParams({
-    client_id: GITHUB_CLIENT_ID,
+    client_id: GITHUB_OAUTH_CLIENT_ID,
     redirect_uri: `${baseUrl}/auth/github/callback`,
     scope: 'repo,user:email',
     state,
@@ -25,8 +25,8 @@ export function getGitHubAuthURL(userId: string) {
 
 export async function exchangeCodeForToken(code: string) {
   const auth = createOAuthAppAuth({
-    clientId: GITHUB_CLIENT_ID,
-    clientSecret: GITHUB_CLIENT_SECRET,
+    clientId: GITHUB_OAUTH_CLIENT_ID,
+    clientSecret: GITHUB_OAUTH_CLIENT_SECRET,
   });
 
   const tokenResponse = await auth({
@@ -59,7 +59,6 @@ export async function saveUserGitHubToken(userId: string, accessToken: string, g
     .update(users)
     .set({ 
       github_access_token: encryptedToken,
-      // Remove non-existent columns for now
     })
     .where(eq(users.id, userId));
 }
