@@ -34,69 +34,108 @@ const openapiAnalyzer = new OpenAPIAnalyzer();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
+  // ISOLATED TEST CALLBACK - Add this FIRST in registerRoutes
+  app.get("/test-callback", async (req, res) => {
+    console.log("=== TEST CALLBACK HIT ===");
+    console.log("Query params:", req.query);
+    
+    // Test if we can reach this endpoint at all
+    res.send(`
+      <html>
+        <body>
+          <h1>Callback Test Successful</h1>
+          <p>Code: ${req.query.code || 'MISSING'}</p>
+          <p>State: ${req.query.state || 'MISSING'}</p>
+          <script>
+            console.log('Callback reached!', window.location.search);
+            setTimeout(() => {
+              window.location.href = '/integrations?test=success';
+            }, 2000);
+          </script>
+        </body>
+      </html>
+    `);
+  });
+
   // Test route to verify callback URL accessibility
   app.get("/api/auth/github/callback-test", (req, res) => {
     console.log('Callback test route hit - OAuth callback URL is accessible');
     res.json({ message: "OAuth callback URL is accessible", timestamp: new Date().toISOString() });
   });
 
-  // CRITICAL: OAuth callback route using /api prefix to avoid Vite interception
   app.get("/api/auth/github/callback", async (req, res) => {
-    // Set CORS headers
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
-    console.log('=== GITHUB OAUTH CALLBACK DEBUG ===');
-    console.log('Route handler called - OAuth callback received');
-    console.log('Request method:', req.method);
-    console.log('Request path:', req.path);
-    console.log('Query params:', req.query);
-    console.log('Headers:', req.headers);
-    console.log('Full URL:', req.url);
-    console.log('User agent:', req.get('User-Agent'));
+    console.log("\n\n=== GITHUB OAUTH CALLBACK - FULL DEBUG ===");
+    console.log("1. Request received at:", new Date().toISOString());
+    console.log("2. Full URL:", req.url);
+    console.log("3. Query params:", JSON.stringify(req.query, null, 2));
+    console.log("4. Headers:", JSON.stringify(req.headers, null, 2));
     
     try {
       const { code, state } = req.query;
-      console.log('Extracted code:', code ? 'present' : 'missing');
-      console.log('Extracted state:', state ? 'present' : 'missing');
       
-      if (!code || !state) throw new Error("Invalid callback parameters");
+      if (!code) {
+        console.log("5. ERROR: No code in query params");
+        throw new Error("No authorization code");
+      }
       
-      // Validate state
-      console.log('Decoding state:', state);
-      const decodedState = JSON.parse(Buffer.from(state as string, 'base64').toString());
-      console.log('Decoded state:', decodedState);
+      if (!state) {
+        console.log("5. ERROR: No state in query params");
+        throw new Error("No state parameter");
+      }
       
-      if (Date.now() - decodedState.timestamp > 600000) throw new Error("State expired");  // 10-min expiry
+      console.log("5. Code present:", code.toString().substring(0, 10) + "...");
+      console.log("6. State present:", state.toString().substring(0, 20) + "...");
       
-      console.log('Exchanging code for token...');
-      const accessToken = await exchangeCodeForToken(code as string);
-      console.log('Got access token:', accessToken ? 'success' : 'failed');
+      // Try to decode state
+      let decodedState;
+      try {
+        decodedState = JSON.parse(Buffer.from(state as string, 'base64').toString());
+        console.log("7. State decoded successfully:", decodedState);
+      } catch (e) {
+        console.log("7. ERROR: Failed to decode state:", e);
+        throw new Error("Invalid state parameter");
+      }
       
-      console.log('Getting GitHub user...');
-      const githubUser = await getGitHubUser(accessToken);
-      console.log('GitHub user:', githubUser);
+      // Try to exchange code
+      console.log("8. Attempting token exchange...");
+      let accessToken;
+      try {
+        accessToken = await exchangeCodeForToken(code as string);
+        console.log("9. Token exchange successful!");
+      } catch (e) {
+        console.log("9. ERROR: Token exchange failed:", e);
+        throw e;
+      }
       
-      console.log('Saving user GitHub token...');
-      await saveUserGitHubToken(decodedState.userId, accessToken, githubUser);  // Use state.userId
-      console.log('Token saved successfully');
+      // Try to get user
+      console.log("10. Fetching GitHub user...");
+      let githubUser;
+      try {
+        githubUser = await getGitHubUser(accessToken);
+        console.log("11. GitHub user fetched:", githubUser.login);
+      } catch (e) {
+        console.log("11. ERROR: Failed to fetch user:", e);
+        throw e;
+      }
       
-      const frontendUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
-        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-        : 'http://localhost:5000';
+      // Try to save token
+      console.log("12. Saving token to database...");
+      try {
+        await saveUserGitHubToken(decodedState.userId, accessToken, githubUser);
+        console.log("13. Token saved successfully!");
+      } catch (e) {
+        console.log("13. ERROR: Failed to save token:", e);
+        throw e;
+      }
       
-      console.log('Redirecting to:', `${frontendUrl}/integrations?connected=true`);
-      res.redirect(`${frontendUrl}/integrations?connected=true`);  // Generalized redirect
-    } catch (error) {
-      console.error("=== OAUTH CALLBACK ERROR ===");
-      console.error("Error details:", error);
-      console.error("Stack trace:", error instanceof Error ? error.stack : 'No stack trace');
+      console.log("14. SUCCESS: Redirecting to integrations page");
+      res.redirect("/integrations?connected=true");
       
-      const frontendUrl = process.env.REPLIT_DOMAINS?.split(',')[0] 
-        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-        : 'http://localhost:5000';
-      res.redirect(`${frontendUrl}/integrations?error=connection_failed`);
+    } catch (error: any) {
+      console.log("\n=== CALLBACK FAILED ===");
+      console.log("Error:", error.message);
+      console.log("Stack:", error.stack);
+      res.redirect("/integrations?error=" + encodeURIComponent(error.message));
     }
   });
 
@@ -186,6 +225,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(project);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // DIRECT TOKEN TEST - Bypass OAuth completely
+  app.post("/api/auth/github/test-token", authMiddleware, async (req: any, res) => {
+    try {
+      console.log("=== DIRECT TOKEN TEST ===");
+      
+      // Create a test token (you'll need to get a real one from GitHub)
+      const testToken = "ghp_YOUR_PERSONAL_ACCESS_TOKEN_HERE";
+      
+      // Test if we can save it
+      await saveUserGitHubToken(req.user.id, testToken, {
+        login: "test-user",
+        id: 12345,
+        name: "Test User"
+      });
+      
+      console.log("Token saved successfully!");
+      
+      // Test if we can retrieve it
+      const { getUserGitHubToken } = await import("./services/github-oauth");
+      const retrieved = await getUserGitHubToken(req.user.id);
+      console.log("Token retrieved:", retrieved ? "SUCCESS" : "FAILED");
+      
+      res.json({ 
+        success: true, 
+        message: "Token test complete",
+        canSave: true,
+        canRetrieve: !!retrieved
+      });
+    } catch (error: any) {
+      console.error("Token test failed:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 
