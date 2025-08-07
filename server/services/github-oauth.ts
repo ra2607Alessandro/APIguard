@@ -82,6 +82,7 @@ export async function createProjectFromRepo(userId: string, repoData: any) {
   const [project] = await db
     .insert(projects)
     .values({
+      user_id: userId,
       name: repoData.name,
       github_repo: repoData.html_url,
     })
