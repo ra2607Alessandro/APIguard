@@ -35,6 +35,11 @@ function Router() {
     <div className="min-h-screen bg-gray-50">
       {isAuthenticated && <Navigation />}
       <Switch>
+        {/* Add this route BEFORE other routes */}
+        <Route path="/auth/github/callback">
+          {() => <GitHubCallbackHandler />}
+        </Route>
+        
         <Route path="/login">
           {() => isAuthenticated ? <AuthenticatedRedirect to="/dashboard" /> : <LoginPage />}
         </Route>
@@ -79,94 +84,23 @@ function AuthenticatedRedirect({ to }: { to: string }) {
   return null;
 }
 
-// GitHub OAuth callback handler with proper loading states and error handling
+// Add this component back
 function GitHubCallbackHandler() {
-  const { isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
-  const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
-  const [error, setError] = useState<string>('');
-
+  
   useEffect(() => {
-    const processCallback = async () => {
-      try {
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('code');
-        const errorParam = urlParams.get('error');
-        
-        if (errorParam) {
-          throw new Error(`GitHub authorization failed: ${errorParam}`);
-        }
-        
-        if (!code) {
-          throw new Error('No authorization code received from GitHub');
-        }
-        
-        if (!isAuthenticated) {
-          throw new Error('User not authenticated');
-        }
-
-        const response = await fetch('/api/auth/github/callback', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('auth-token')}`
-          },
-          body: JSON.stringify({ code })
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to connect GitHub account');
-        }
-        
-        setStatus('success');
-        setTimeout(() => {
-          setLocation('/dashboard');
-        }, 1500);
-        
-      } catch (error: any) {
-        setStatus('error');
-        setError(error.message || 'Failed to connect GitHub account');
-      }
-    };
-
-    processCallback();
-  }, [isAuthenticated, setLocation]);
-
-  if (status === 'processing') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Connecting your GitHub account...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === 'success') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="text-green-600 text-4xl mb-4">✓</div>
-          <p className="text-gray-900 font-medium">GitHub Connected Successfully!</p>
-          <p className="text-gray-600 mt-2">Redirecting to dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
+    // Get the full URL with query params
+    const fullUrl = window.location.href;
+    
+    // Redirect to backend with all params preserved
+    window.location.href = fullUrl.replace(window.location.origin, '');
+  }, []);
+  
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="text-center max-w-md">
-        <div className="text-red-600 text-4xl mb-4">✗</div>
-        <p className="text-gray-900 font-medium mb-2">Connection Failed</p>
-        <p className="text-gray-600 mb-4">{error}</p>
-        <button 
-          onClick={() => setLocation('/dashboard')}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
-          Return to Dashboard
-        </button>
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+        <p className="mt-4">Processing GitHub authorization...</p>
       </div>
     </div>
   );

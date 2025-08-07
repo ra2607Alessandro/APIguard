@@ -59,10 +59,7 @@ export async function saveUserGitHubToken(userId: string, accessToken: string, g
     .update(users)
     .set({ 
       github_access_token: encryptedToken,
-      github_username: githubUser.login,
-      github_user_id: String(githubUser.id),
-      github_connected_at: new Date(),
-      github_scopes: 'repo,user:email'
+      // Remove non-existent columns for now
     })
     .where(eq(users.id, userId));
 }
