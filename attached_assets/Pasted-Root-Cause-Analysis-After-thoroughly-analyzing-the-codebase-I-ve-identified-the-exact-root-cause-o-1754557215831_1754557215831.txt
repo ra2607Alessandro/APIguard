@@ -1,0 +1,39 @@
+Root Cause Analysis
+After thoroughly analyzing the codebase, I've identified the exact root cause of the 404 error:
+Critical Issue: Route Mismatch
+The Problem:
+Frontend (integrations.tsx) calls: /api/auth/github/authorize (line 124)
+Backend routes has: /api/auth/github/authorize (line 59 in routes.ts) ✓
+BUT the old frontend (github-connect.tsx) calls: /api/auth/github (line 41)
+The issue is that there are TWO different frontend pages making different API calls:
+Integrations page (which you're using): calls /api/auth/github/authorize ✓ WORKS
+GitHub Connect page: calls /api/auth/github ✓ WORKS (but returns connection status, not auth URL)
+The Actual Root Cause
+Looking at the backend routes:
+/api/auth/github/authorize → Returns { authUrl: "..." }
+/api/auth/github → Returns { connected: boolean, hasToken: boolean }
+The integrations page correctly calls /api/auth/github/authorize and expects data.authUrl, but there's likely an issue with:
+Environment variables not set (GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET)
+Server failing to start due to syntax errors
+Authentication middleware rejecting the request
+Let me check the specific issue:
+CRITICAL FINDING: The Environment Validation is in the WRONG FILE
+I found the exact issue! The environment validation function was added to the CLIENT file (client/src/types/index.ts) instead of the SERVER file (server/index.ts). This is causing a major problem:
+The validation code is running on the client side (which doesn't have access to server environment variables)
+The server is NOT validating environment variables and likely failing when trying to use undefined values
+This causes the entire server routes to fail, resulting in 404 errors
+Immediate Fix Needed:
+The environment validation needs to be moved from client/src/types/index.ts to server/index.ts, and the client file should contain only frontend types.
+Additional Issues Found:
+Missing Database Schema Columns: The saveUserGitHubToken function is trying to set columns that don't exist in the database schema:
+github_username
+github_user_id
+github_connected_at
+github_scopes
+Type Conflicts: The client/src/types/index.ts file contains server code instead of frontend types.
+Complete Fix Plan:
+Move environment validation to server
+Fix database schema mismatch
+Correct the types file
+Ensure environment variables are properly set
+The 404 error is happening because the server is failing to start properly due to these configuration issues, not because of route mismatches. The routes are actually correctly defined, but the server isn't processing them due to startup failures.
