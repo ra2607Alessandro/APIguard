@@ -123,7 +123,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Add after existing OAuth routes
+  // OAuth callback route registered BEFORE other routes
   app.get("/auth/github/callback", async (req, res) => {
     // Set CORS headers
     res.header('Access-Control-Allow-Origin', '*');
@@ -131,9 +131,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     
     console.log('=== GITHUB OAUTH CALLBACK DEBUG ===');
+    console.log('Route handler called - OAuth callback received');
+    console.log('Request method:', req.method);
+    console.log('Request path:', req.path);
     console.log('Query params:', req.query);
     console.log('Headers:', req.headers);
     console.log('Full URL:', req.url);
+    console.log('User agent:', req.get('User-Agent'));
     
     try {
       const { code, state } = req.query;

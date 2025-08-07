@@ -89,11 +89,18 @@ function GitHubCallbackHandler() {
   const [, setLocation] = useLocation();
   
   useEffect(() => {
+    console.log('GitHubCallbackHandler: Component mounted');
+    console.log('Current URL:', window.location.href);
+    console.log('Query params:', window.location.search);
+    
     // Get the full URL with query params
     const fullUrl = window.location.href;
+    const backendPath = fullUrl.replace(window.location.origin, '');
+    
+    console.log('Redirecting to backend path:', backendPath);
     
     // Redirect to backend with all params preserved
-    window.location.href = fullUrl.replace(window.location.origin, '');
+    window.location.href = backendPath;
   }, []);
   
   return (
