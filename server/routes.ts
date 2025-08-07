@@ -89,10 +89,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Try to decode state
       let decodedState;
       try {
-        decodedState = JSON.parse(Buffer.from(state as string, 'base64').toString());
-        console.log("7. State decoded successfully:", decodedState);
+        // First URL decode the state parameter (GitHub may URL-encode it)
+        const urlDecodedState = decodeURIComponent(state as string);
+        console.log("7a. URL decoded state:", urlDecodedState.substring(0, 50) + "...");
+        
+        // Then Base64 decode it
+        decodedState = JSON.parse(Buffer.from(urlDecodedState, 'base64').toString());
+        console.log("7b. State decoded successfully:", decodedState);
       } catch (e) {
         console.log("7. ERROR: Failed to decode state:", e);
+        console.log("7. Raw state parameter:", state);
         throw new Error("Invalid state parameter");
       }
       
