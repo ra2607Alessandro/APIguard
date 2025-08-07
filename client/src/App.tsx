@@ -41,9 +41,7 @@ function Router() {
         <Route path="/signup">
           {() => isAuthenticated ? <AuthenticatedRedirect to="/dashboard" /> : <SignupPage />}
         </Route>
-        <Route path="/auth/github/callback">
-          {() => <GitHubCallbackHandler />}
-        </Route>
+
         {isAuthenticated ? (
           <>
             <Route path="/">

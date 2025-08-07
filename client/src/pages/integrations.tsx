@@ -120,12 +120,16 @@ export default function Integrations() {
 
   const handleInstallGitHubApp = async () => {
     try {
+      console.log('=== FRONTEND OAUTH DEBUG: Starting GitHub connection ===');
+      
       // Get GitHub OAuth authorization URL from backend
       const response = await fetch('/api/auth/github/authorize', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('auth-token')}`
         }
       });
+      
+      console.log('Authorization response status:', response.status);
       
       if (!response.ok) {
         throw new Error(`Authorization failed: ${response.status}`);
@@ -138,7 +142,10 @@ export default function Integrations() {
       }
       
       const data = await response.json();
+      console.log('Authorization URL received:', data.authUrl);
+      
       // Redirect to GitHub OAuth authorization
+      console.log('Redirecting to GitHub...');
       window.location.href = data.authUrl;
     } catch (error: any) {
       console.error('GitHub OAuth error:', error);
