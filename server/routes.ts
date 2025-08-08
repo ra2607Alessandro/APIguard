@@ -177,6 +177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hasInstallation: !!installationId 
       });
     } catch (error: any) {
+      console.error('GitHub status check error:', error);
       res.status(400).json({ error: error.message });
     }
   });
@@ -191,6 +192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const repos = await githubAppService.getInstallationRepositories(installationId);
       res.json(repos);
     } catch (error: any) {
+      console.error('GitHub repositories fetch error:', error);
       res.status(400).json({ error: error.message });
     }
   });
