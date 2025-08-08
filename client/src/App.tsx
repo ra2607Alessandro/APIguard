@@ -12,7 +12,6 @@ import SlackIntegration from "@/pages/slack-integration";
 import EmailNotifications from "@/pages/email-notifications";
 import { LoginPage } from "@/pages/login";
 import { SignupPage } from "@/pages/signup";
-import { GitHubConnectPage } from "@/pages/github-connect";
 import Navigation from "@/components/navigation";
 import NotFound from "@/pages/not-found";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
@@ -58,7 +57,6 @@ function Router() {
             <Route path="/integrations" component={Integrations} />
             <Route path="/settings/integrations/slack" component={SlackIntegration} />
             <Route path="/settings/notifications/email" component={EmailNotifications} />
-            <Route path="/github/connect" component={GitHubConnectPage} />
             <Route component={NotFound} />
           </>
         ) : (

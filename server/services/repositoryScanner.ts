@@ -26,8 +26,8 @@ export class RepositoryScanner {
   private readonly octokit: Octokit;
   private readonly llmDetector: LLMSpecDetector;
 
-  constructor(token: string) {
-    this.octokit = new Octokit({ auth: token });
+  constructor(octokitOrToken: string | Octokit) {
+    this.octokit = typeof octokitOrToken === 'string' ? new Octokit({ auth: octokitOrToken }) : octokitOrToken;
     this.llmDetector = new LLMSpecDetector();
   }
 

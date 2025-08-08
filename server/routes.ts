@@ -561,7 +561,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         activeProjects: projects.filter(p => p.is_active).length,
         projectDetails: debugInfo,
         systemStatus: {
-          githubTokenConfigured: !!process.env.GITHUB_TOKEN,
+          githubAppConfigured: !!(process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY),
           webhookSecretConfigured: !!process.env.GITHUB_WEBHOOK_SECRET,
           databaseConnected: true // Assuming if we got here, DB is working
         }
@@ -585,7 +585,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timestamp: new Date().toISOString(),
         services: {
           database: "connected",
-          github: process.env.GITHUB_TOKEN ? "configured" : "missing_token",
+          githubApp: (process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY) ? "configured" : "missing_config",
           monitoring: projectsCount > 0 ? "active" : "inactive"
         },
         stats: {
@@ -880,10 +880,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Invalid repository format' });
       }
       
-      // Use the repositoryScanner's comparison method
-      const { default: RepositoryScanner } = await import('./services/repositoryScanner.js');
-      const repositoryScanner = new RepositoryScanner(process.env.GITHUB_TOKEN!);
-      const comparisonReport = await repositoryScanner.compareDetectionMethods(owner, repo);
+      // DISABLED: This endpoint used personal token scanning
+      return res.status(501).json({ 
+        error: 'This endpoint is disabled. Use installation-based scanning instead.',
+        suggestion: 'Use POST /api/discovery/repository-with-installation'
+      });
       
       res.json({
         repository: `${owner}/${repo}`,

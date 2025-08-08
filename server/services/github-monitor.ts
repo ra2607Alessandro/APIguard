@@ -5,6 +5,7 @@ import type { SpecSource, MonitoringConfig } from "@shared/schema";
 import * as yaml from 'js-yaml';
 import * as crypto from 'crypto';
 import RepositoryScanner from './repositoryScanner.js';
+import { githubService } from "./github";
 
 interface DiscoveredSpec {
   filePath: string;
@@ -14,22 +15,22 @@ interface DiscoveredSpec {
 }
 
 export class GitHubMonitor {
-  private octokit: Octokit;
   private activeMonitors: Map<string, any> = new Map();
   private cronJobs: Map<string, any> = new Map();
-  private repositoryScanner: RepositoryScanner;
+  private repositoryScanner: RepositoryScanner | null = null;
 
   constructor(private storage: IStorage) {
-    if (!process.env.GITHUB_TOKEN) {
-      throw new Error("GITHUB_TOKEN environment variable is required");
+    // No longer using global GITHUB_TOKEN - will use installation tokens
+  }
+
+  private async getOctokitForRepo(userId: string, owner: string, repo: string): Promise<Octokit> {
+    // Find a user installation that can access this repo
+    const userInstalls = await this.storage.getUserGitHubInstallations(userId);
+    for (const inst of userInstalls) {
+      const ok = await githubService.canAccessRepository(inst.installation_id, owner, repo);
+      if (ok) return await githubService.getInstallationOctokit(inst.installation_id);
     }
-
-    this.octokit = new Octokit({
-      auth: process.env.GITHUB_TOKEN,
-    });
-
-    // Initialize LLM-based repository scanner
-    this.repositoryScanner = new RepositoryScanner(process.env.GITHUB_TOKEN);
+    throw new Error(`No GitHub App installation can access ${owner}/${repo}`);
   }
 
   async startMonitoring(): Promise<void> {
@@ -53,7 +54,7 @@ export class GitHubMonitor {
 
   async setupSourceMonitoring(projectId: string, source: SpecSource): Promise<void> {
     const project = await this.storage.getProject(projectId);
-    if (!project || !project.github_repo) return;
+    if (!project || !project.github_repo || !project.user_id) return;
 
     const { owner, repo } = this.parseRepositoryUrl(project.github_repo);
     if (!owner || !repo) {
@@ -65,7 +66,7 @@ export class GitHubMonitor {
 
     // Setup webhook if not exists
     try {
-      await this.ensureWebhook(owner, repo);
+      await this.ensureWebhook(project.user_id, owner, repo);
     } catch (error) {
       console.error(`Failed to setup webhook for ${owner}/${repo}:`, error);
     }
@@ -79,7 +80,7 @@ export class GitHubMonitor {
     }
 
     const job = cron.schedule(cronExpression, async () => {
-      await this.checkForChanges(projectId, source, owner, repo);
+      await this.checkForChanges(projectId, source, project.user_id!, owner, repo);
     });
 
     this.cronJobs.set(monitorKey, job);
@@ -130,9 +131,10 @@ export class GitHubMonitor {
     return { owner: '', repo: '' };
   }
 
-  async ensureWebhook(owner: string, repo: string): Promise<void> {
+  async ensureWebhook(userId: string, owner: string, repo: string): Promise<void> {
     try {
-      const webhooks = await this.octokit.repos.listWebhooks({
+      const octokit = await this.getOctokitForRepo(userId, owner, repo);
+      const webhooks = await octokit.repos.listWebhooks({
         owner,
         repo,
       });
@@ -195,7 +197,7 @@ export class GitHubMonitor {
             for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
               console.log(`Checking for changes in ${source.source_path}`);
               try {
-                await this.checkForChanges(project.id, source, owner, repo, commitSha);
+                await this.checkForChanges(project.id, source, project.user_id!, owner, repo, commitSha);
               } catch (sourceError: any) {
                 console.error(`❌ Failed to check ${source.source_path} in project ${project.name}:`, sourceError.message);
                 console.error(`   Continuing with other sources...`);
@@ -229,7 +231,7 @@ export class GitHubMonitor {
             const sources = await this.storage.getSpecSources(project.id);
             for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
               try {
-                await this.checkForChanges(project.id, source, owner, repo, commitSha);
+                await this.checkForChanges(project.id, source, project.user_id!, owner, repo, commitSha);
               } catch (sourceError: any) {
                 console.error(`❌ Failed to check ${source.source_path} in project ${project.name}:`, sourceError.message);
                 console.error(`   Continuing with other sources...`);
@@ -256,13 +258,17 @@ export class GitHubMonitor {
   async checkForChanges(
     projectId: string, 
     source: SpecSource, 
+    userId: string,
     owner: string, 
     repo: string, 
     commitSha?: string
   ): Promise<void> {
     try {
+      // Get installation-based Octokit for this repo
+      const octokit = await this.getOctokitForRepo(userId, owner, repo);
+      
       // Get current spec content
-      const fileResponse = await this.octokit.repos.getContent({
+      const fileResponse = await octokit.repos.getContent({
         owner,
         repo,
         path: source.source_path,

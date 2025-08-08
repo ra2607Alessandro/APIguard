@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Download, Search } from "lucide-react";
+import { Plus, Download, Search, Github, ArrowRight } from "lucide-react";
 import ProjectsTable from "@/components/projects-table";
 import SetupWizard from "@/components/setup-wizard";
 import { api } from "@/lib/api";
@@ -12,12 +12,19 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/auth-context";
+import { Link } from "wouter";
 
 export default function Projects() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [showSetupWizard, setShowSetupWizard] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // Check GitHub connection status
+  const { data: githubStatus, isLoading: githubStatusLoading } = useQuery({
+    queryKey: ["/api/auth/github"],
+    enabled: isAuthenticated && !authLoading,
+  });
 
   const { data: projects = [], isLoading, error } = useQuery({
     queryKey: ["/api/projects"],
@@ -84,13 +91,43 @@ export default function Projects() {
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
-            <Button onClick={() => setShowSetupWizard(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              New Project
-            </Button>
+            {githubStatus?.connected ? (
+              <Button onClick={() => setShowSetupWizard(true)} data-testid="button-new-project">
+                <Plus className="h-4 w-4 mr-2" />
+                New Project
+              </Button>
+            ) : (
+              <Link href="/integrations">
+                <Button data-testid="button-connect-github">
+                  <Github className="h-4 w-4 mr-2" />
+                  Connect GitHub First
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
       </div>
+
+      {/* GitHub Connection Alert */}
+      {!githubStatusLoading && !githubStatus?.connected && (
+        <Alert className="mb-6 border-blue-200 bg-blue-50">
+          <Github className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="text-blue-800">
+            <div className="flex items-center justify-between">
+              <span>
+                Connect your GitHub account to start creating projects and monitoring your repositories.
+              </span>
+              <Link href="/integrations">
+                <Button size="sm" className="ml-4" data-testid="button-setup-github">
+                  Setup GitHub
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </Link>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Filters Section */}
       <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
