@@ -59,16 +59,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GitHub App setup callback route
   app.get("/api/auth/github/setup", async (req, res) => {
     try {
-      const { installation_id, setup_action } = req.query as { installation_id: string; setup_action: string };
+      const { installation_id, setup_action, state } = req.query as { 
+        installation_id: string; 
+        setup_action: string;
+        state?: string;
+      };
       
-      console.log('GitHub App setup callback:', { installation_id, setup_action });
+      console.log('GitHub App setup callback:', { installation_id, setup_action, state });
       
       if (setup_action !== 'install' || !installation_id) {
+        console.error('Invalid setup callback parameters:', { setup_action, installation_id });
         return res.redirect("/integrations?error=setup_failed");
       }
+
+      // Extract user ID from state parameter if provided
+      let userId = null;
+      if (state) {
+        try {
+          const stateData = JSON.parse(decodeURIComponent(state));
+          userId = stateData.userId;
+        } catch (e) {
+          console.warn('Could not parse state parameter:', state);
+        }
+      }
       
-      // Store the installation ID temporarily and redirect to complete setup
-      // User will need to link this installation to their account
+      if (userId) {
+        // If we have user ID from state, immediately link the installation
+        const { githubAppService } = await import("./services/github-app");
+        
+        try {
+          const installationDetails = await githubAppService.getInstallationDetails(parseInt(installation_id));
+          
+          if (installationDetails) {
+            const accountLogin = installationDetails.account?.login || installationDetails.account?.name || 'unknown';
+            
+            await storage.saveUserGitHubInstallation(
+              userId,
+              parseInt(installation_id),
+              accountLogin
+            );
+            
+            console.log('GitHub App installation linked successfully:', { userId, installation_id, accountLogin });
+            return res.redirect("/integrations?success=github_connected");
+          }
+        } catch (linkError) {
+          console.error('Failed to link installation automatically:', linkError);
+        }
+      }
+      
+      // Fallback: redirect to frontend for manual linking
       res.redirect(`/integrations?installation_id=${installation_id}&setup=complete`);
       
     } catch (error: any) {
@@ -94,18 +133,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Installation not found" });
       }
       
+      const accountLogin = installationDetails.account?.login || installationDetails.account?.name || 'unknown';
+      
       // Save the installation to the user's account
       await storage.saveUserGitHubInstallation(
         req.user.id, 
         parseInt(installation_id), 
-        installationDetails.account.login
+        accountLogin
       );
       
       res.json({ 
         success: true, 
         installation: {
           id: installation_id,
-          account: installationDetails.account.login
+          account: accountLogin
         }
       });
       
@@ -141,7 +182,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { githubAppService } = await import("./services/github-app");
       console.log('GitHub App installation request from user:', req.user.id);
-      const installUrl = githubAppService.getInstallationURL();
+      const installUrl = githubAppService.getInstallationURL(req.user.id);
       console.log('Generated installation URL:', installUrl);
       res.json({ installUrl });
     } catch (error: any) {
@@ -197,47 +238,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create project from GitHub repository
   app.post("/api/projects/from-repo", authMiddleware, async (req: any, res) => {
     try {
       const { repoData } = req.body;
-      const project = await createProjectFromRepo(req.user.id, repoData);
+      
+      // Create project based on repository data
+      const project = await storage.createProject({
+        name: repoData.name,
+        description: repoData.description || `Monitoring project for ${repoData.full_name}`,
+        github_repo_url: repoData.html_url,
+        user_id: req.user.id,
+        health_status: 'healthy'
+      });
+      
       res.json(project);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
-    }
-  });
-
-  // DIRECT TOKEN TEST - Bypass OAuth completely
-  app.post("/api/auth/github/test-token", authMiddleware, async (req: any, res) => {
-    try {
-      console.log("=== DIRECT TOKEN TEST ===");
-      
-      // Create a test token (you'll need to get a real one from GitHub)
-      const testToken = "ghp_YOUR_PERSONAL_ACCESS_TOKEN_HERE";
-      
-      // Test if we can save it
-      await saveUserGitHubToken(req.user.id, testToken, {
-        login: "test-user",
-        id: 12345,
-        name: "Test User"
-      });
-      
-      console.log("Token saved successfully!");
-      
-      // Test if we can retrieve it
-      const { getUserGitHubToken } = await import("./services/github-oauth");
-      const retrieved = await getUserGitHubToken(req.user.id);
-      console.log("Token retrieved:", retrieved ? "SUCCESS" : "FAILED");
-      
-      res.json({ 
-        success: true, 
-        message: "Token test complete",
-        canSave: true,
-        canRetrieve: !!retrieved
-      });
-    } catch (error: any) {
-      console.error("Token test failed:", error);
-      res.status(500).json({ error: error.message });
     }
   });
 

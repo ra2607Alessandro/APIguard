@@ -81,10 +81,20 @@ export class GitHubAppService {
   }
 
   /**
+   * Generate JWT for GitHub App authentication
+   */
+  private async generateJWT(): Promise<string> {
+    // Use the existing app auth which handles JWT generation
+    const { token } = await this.app.auth({ type: "app" });
+    return token;
+  }
+
+  /**
    * Get installation details
    */
   async getInstallationDetails(installationId: number) {
-    const appOctokit = new Octokit({ auth: await this.generateJWT() });
+    const jwt = await this.generateJWT();
+    const appOctokit = new Octokit({ auth: jwt });
     const { data } = await appOctokit.rest.apps.getInstallation({
       installation_id: installationId,
     });
@@ -92,15 +102,22 @@ export class GitHubAppService {
   }
 
   /**
-   * Generate GitHub App installation URL
+   * Generate GitHub App installation URL with user context
    */
-  getInstallationURL(): string {
+  getInstallationURL(userId?: string): string {
     // Include setup URL for post-installation callback
     const baseUrl = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
     const protocol = baseUrl.includes('replit.app') ? 'https' : 'http';
-    const setupUrl = encodeURIComponent(`${protocol}://${baseUrl}/api/auth/github/setup`);
     
-    return `https://github.com/apps/the-api-sentinel/installations/new?setup_url=${setupUrl}`;
+    // Add state parameter with user ID for automatic linking
+    let setupUrl = `${protocol}://${baseUrl}/api/auth/github/setup`;
+    if (userId) {
+      const state = encodeURIComponent(JSON.stringify({ userId }));
+      setupUrl += `?state=${state}`;
+    }
+    
+    const encodedSetupUrl = encodeURIComponent(setupUrl);
+    return `https://github.com/apps/the-api-sentinel/installations/new?setup_url=${encodedSetupUrl}`;
   }
 }
 
