@@ -122,6 +122,8 @@ export interface IStorage {
   // GitHub App installation methods
   saveUserGitHubInstallation(userId: string, installationId: number, githubUsername: string): Promise<GitHubAppInstallation>;
   getUserGitHubInstallation(userId: string): Promise<GitHubAppInstallation | undefined>;
+  getUserGitHubInstallations(userId: string): Promise<GitHubAppInstallation[]>;
+  deleteUserGitHubInstallation(userId: string, installationId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -731,6 +733,22 @@ export class DatabaseStorage implements IStorage {
       .from(github_app_installations)
       .where(eq(github_app_installations.user_id, userId));
     return installation || undefined;
+  }
+
+  async getUserGitHubInstallations(userId: string): Promise<GitHubAppInstallation[]> {
+    return await db
+      .select()
+      .from(github_app_installations)
+      .where(eq(github_app_installations.user_id, userId));
+  }
+
+  async deleteUserGitHubInstallation(userId: string, installationId: number): Promise<void> {
+    await db
+      .delete(github_app_installations)
+      .where(and(
+        eq(github_app_installations.user_id, userId),
+        eq(github_app_installations.installation_id, installationId)
+      ));
   }
 }
 

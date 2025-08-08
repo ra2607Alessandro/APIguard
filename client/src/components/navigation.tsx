@@ -10,9 +10,8 @@ const navItems = [
   { path: "/", label: "Dashboard", icon: BarChart3 },
   { path: "/projects", label: "Projects", icon: FolderOpen },
   { path: "/monitoring", label: "Monitoring", icon: Activity },
-  { path: "/github/connect", label: "GitHub", icon: Github },
+  { path: "/integrations", label: "GitHub", icon: Github },
   { path: "/settings/notifications/email", label: "Email Alerts", icon: Mail },
-  { path: "/integrations", label: "Integrations", icon: Settings },
 ];
 
 export default function Navigation() {

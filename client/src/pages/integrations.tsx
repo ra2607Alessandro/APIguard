@@ -112,7 +112,7 @@ export default function Integrations() {
   // Remove installation mutation
   const removeInstallationMutation = useMutation({
     mutationFn: async (installationId: number) => {
-      const response = await fetch(`/api/github/installation/${installationId}?userId=default-user`, {
+      const response = await fetch(`/api/github/installation/${installationId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('auth-token')}`,

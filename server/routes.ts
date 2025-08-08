@@ -783,40 +783,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/github/installations", async (req, res) => {
-    try {
-      // TODO: Get user ID from session when auth is implemented
-      const userId = req.query.userId as string || 'default-user';
-      const installations = await githubService.getUserInstallations(userId);
-      res.json(installations);
-    } catch (error) {
-      console.error("Error fetching user installations:", error);
-      res.status(500).json({ message: "Failed to fetch installations" });
-    }
+  app.get("/api/github/installations", authMiddleware, async (req: any, res) => {
+    const installations = await storage.getUserGitHubInstallations(req.user.id);
+    res.json(installations);
   });
 
-  app.delete("/api/github/installation/:id", async (req, res) => {
-    try {
-      // TODO: Get user ID from session when auth is implemented
-      const userId = req.query.userId as string || 'default-user';
-      const installationId = parseInt(req.params.id);
-      await githubService.removeInstallation(userId, installationId);
-      res.status(204).send();
-    } catch (error) {
-      console.error("Error removing installation:", error);
-      res.status(500).json({ message: "Failed to remove installation" });
-    }
+  app.delete("/api/github/installation/:id", authMiddleware, async (req: any, res) => {
+    const installationId = parseInt(req.params.id);
+    await storage.deleteUserGitHubInstallation(req.user.id, installationId);
+    res.status(204).send();
   });
 
-  app.get("/api/github/installation/:id/repositories", async (req, res) => {
-    try {
-      const installationId = parseInt(req.params.id);
-      const repositories = await githubService.getInstallationRepositories(installationId);
-      res.json(repositories);
-    } catch (error) {
-      console.error("Error fetching installation repositories:", error);
-      res.status(500).json({ message: "Failed to fetch repositories" });
-    }
+  app.get("/api/github/installation/:id/repositories", authMiddleware, async (req, res) => {
+    const installationId = parseInt(req.params.id);
+    const repositories = await githubService.getInstallationRepositories(installationId);
+    res.json(repositories);
   });
 
   // GitHub App OAuth connection
