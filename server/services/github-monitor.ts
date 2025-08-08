@@ -144,7 +144,7 @@ export class GitHubMonitor {
       );
 
       if (!existingWebhook) {
-        await this.octokit.repos.createWebhook({
+        await octokit.repos.createWebhook({
           owner,
           repo,
           name: 'web',
