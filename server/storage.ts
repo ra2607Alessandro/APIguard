@@ -11,6 +11,7 @@ import {
   user_notifications,
   user_projects,
   slack_workspaces,
+  github_app_installations,
   type Project,
   type InsertProject,
   type SpecSource,
@@ -34,7 +35,9 @@ import {
   type UserProject,
   type InsertUserProject,
   type SlackWorkspace,
-  type InsertSlackWorkspace
+  type InsertSlackWorkspace,
+  type GitHubAppInstallation,
+  type InsertGitHubAppInstallation
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -115,6 +118,10 @@ export interface IStorage {
   getUserProjects(userId: string): Promise<Project[]>;
   createUserProject(userProject: InsertUserProject): Promise<UserProject>;
   deleteUserProject(userId: string, projectId: string): Promise<void>;
+
+  // GitHub App installation methods
+  saveUserGitHubInstallation(userId: string, installationId: number, githubUsername: string): Promise<GitHubAppInstallation>;
+  getUserGitHubInstallation(userId: string): Promise<GitHubAppInstallation | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -696,6 +703,34 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUserNotification(id: string): Promise<void> {
     await db.delete(user_notifications).where(eq(user_notifications.id, id));
+  }
+
+  // GitHub App installation methods
+  async saveUserGitHubInstallation(userId: string, installationId: number, githubUsername: string): Promise<GitHubAppInstallation> {
+    const [installation] = await db
+      .insert(github_app_installations)
+      .values({
+        user_id: userId,
+        installation_id: installationId,
+        github_username: githubUsername,
+      })
+      .onConflictDoUpdate({
+        target: [github_app_installations.user_id, github_app_installations.installation_id],
+        set: {
+          github_username: githubUsername,
+          updated_at: new Date(),
+        },
+      })
+      .returning();
+    return installation;
+  }
+
+  async getUserGitHubInstallation(userId: string): Promise<GitHubAppInstallation | undefined> {
+    const [installation] = await db
+      .select()
+      .from(github_app_installations)
+      .where(eq(github_app_installations.user_id, userId));
+    return installation || undefined;
   }
 }
 

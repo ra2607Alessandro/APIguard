@@ -269,6 +269,20 @@ export const users = pgTable("users", {
   github_scopes: text("github_scopes"),
 });
 
+export const github_app_installations = pgTable("github_app_installations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar("user_id").references(() => users.id).notNull(),
+  installation_id: integer("installation_id").notNull(),
+  github_username: text("github_username").notNull(),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userInstallationUnique: unique("github_app_installations_user_installation_unique").on(
+    table.user_id,
+    table.installation_id
+  ),
+}));
+
 export const user_projects = pgTable("user_projects", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   user_id: varchar("user_id").references(() => users.id).notNull(),
@@ -360,6 +374,12 @@ export const insertUserProjectSchema = createInsertSchema(user_projects).omit({
   created_at: true,
 });
 
+export const insertGithubAppInstallationSchema = createInsertSchema(github_app_installations).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
@@ -374,3 +394,6 @@ export type SlackWorkspace = typeof slack_workspaces.$inferSelect;
 
 export type UserNotification = typeof user_notifications.$inferSelect;
 export type InsertUserNotification = z.infer<typeof insertUserNotificationSchema>;
+
+export type GitHubAppInstallation = typeof github_app_installations.$inferSelect;
+export type InsertGitHubAppInstallation = z.infer<typeof insertGithubAppInstallationSchema>;

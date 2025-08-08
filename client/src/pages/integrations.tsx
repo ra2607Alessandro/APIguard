@@ -37,20 +37,21 @@ export default function Integrations() {
   const queryClient = useQueryClient();
   const [selectedInstallation, setSelectedInstallation] = useState<number | null>(null);
 
-  // Handle OAuth callback success/error
+  // Handle GitHub App installation callback
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('connected') === 'true') {
-      toast({
-        title: "GitHub Connected",
-        description: "Successfully connected your GitHub account!",
-      });
+    const installationId = urlParams.get('installation_id');
+    const setup = urlParams.get('setup');
+    
+    if (installationId && setup === 'complete') {
+      // Link the installation to the user account
+      linkInstallationMutation.mutate(parseInt(installationId));
       // Clear the URL parameters
       window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (urlParams.get('error') === 'connection_failed') {
+    } else if (urlParams.get('error')) {
       toast({
-        title: "Connection Failed",
-        description: "Failed to connect your GitHub account. Please try again.",
+        title: "Installation Failed",
+        description: "Failed to install GitHub App. Please try again.",
         variant: "destructive",
       });
       // Clear the URL parameters
@@ -74,12 +75,54 @@ export default function Integrations() {
     enabled: !!selectedInstallation,
   });
 
+  // Link installation to user account
+  const linkInstallationMutation = useMutation({
+    mutationFn: async (installationId: number) => {
+      const response = await fetch('/api/auth/github/link-installation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth-token')}`,
+        },
+        body: JSON.stringify({ installation_id: installationId }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to link installation');
+      }
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/github'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/github/installations'] });
+      toast({
+        title: "GitHub App Connected",
+        description: `Successfully linked installation for ${data.installation.account}`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Installation Failed",
+        description: error.message || "Failed to link GitHub App installation.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Remove installation mutation
   const removeInstallationMutation = useMutation({
-    mutationFn: (installationId: number) => 
-      apiRequest(`/api/github/installation/${installationId}?userId=default-user`, {
+    mutationFn: async (installationId: number) => {
+      const response = await fetch(`/api/github/installation/${installationId}?userId=default-user`, {
         method: 'DELETE',
-      }),
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth-token')}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error('Failed to remove installation');
+      }
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/github/installations'] });
       toast({
@@ -98,15 +141,25 @@ export default function Integrations() {
 
   // Test repository scanning with installation
   const testScanMutation = useMutation({
-    mutationFn: ({ repository, installationId }: { repository: string; installationId: number }) =>
-      apiRequest('/api/discovery/repository-with-installation', {
+    mutationFn: async ({ repository, installationId }: { repository: string; installationId: number }) => {
+      const response = await fetch('/api/discovery/repository-with-installation', {
         method: 'POST',
-        body: { repository, installationId },
-      }),
-    onSuccess: (data) => {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth-token')}`,
+        },
+        body: JSON.stringify({ repository, installationId }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to scan repository');
+      }
+      return response.json();
+    },
+    onSuccess: (data: any) => {
       toast({
         title: "Repository scanned successfully",
-        description: `Found ${(data as any).specsFound} OpenAPI specifications.`,
+        description: `Found ${data.specsFound} OpenAPI specifications.`,
       });
     },
     onError: (error: any) => {
@@ -120,38 +173,32 @@ export default function Integrations() {
 
   const handleInstallGitHubApp = async () => {
     try {
-      console.log('=== FRONTEND OAUTH DEBUG: Starting GitHub connection ===');
+      console.log('Starting GitHub App installation...');
       
-      // Get GitHub OAuth authorization URL from backend
-      const response = await fetch('/api/auth/github/authorize', {
+      // Get GitHub App installation URL from backend
+      const response = await fetch('/api/auth/github/install', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('auth-token')}`
         }
       });
       
-      console.log('Authorization response status:', response.status);
+      console.log('Installation response status:', response.status);
       
       if (!response.ok) {
-        throw new Error(`Authorization failed: ${response.status}`);
-      }
-      
-      // Check if response is JSON before parsing
-      const contentType = response.headers.get('content-type');
-      if (!contentType?.includes('application/json')) {
-        throw new Error('Server returned non-JSON response');
+        throw new Error(`Installation request failed: ${response.status}`);
       }
       
       const data = await response.json();
-      console.log('Authorization URL received:', data.authUrl);
+      console.log('Installation URL received:', data.installUrl);
       
-      // Redirect to GitHub OAuth authorization
-      console.log('Redirecting to GitHub...');
-      window.location.href = data.authUrl;
+      // Redirect to GitHub App installation page
+      console.log('Redirecting to GitHub App installation...');
+      window.location.href = data.installUrl;
     } catch (error: any) {
-      console.error('GitHub OAuth error:', error);
+      console.error('GitHub App installation error:', error);
       toast({
-        title: "Connection Error", 
-        description: error.message || "Failed to initiate GitHub connection.",
+        title: "Installation Error", 
+        description: error.message || "Failed to initiate GitHub App installation.",
         variant: "destructive",
       });
     }

@@ -18,14 +18,7 @@ import { OpenAPIAnalyzer } from "./services/openapi-analyzer";
 import { githubService } from "./services/github";
 import { insertGithubInstallationSchema } from "@shared/schema";
 import { signup, login, authMiddleware } from "./services/auth";
-import { 
-  getGitHubAuthURL, 
-  exchangeCodeForToken, 
-  getGitHubUser,
-  getUserRepositories,
-  saveUserGitHubToken,
-  createProjectFromRepo
-} from "./services/github-oauth";
+// GitHub App service will be dynamically imported
 
 const githubMonitor = new GitHubMonitor(storage);
 const breakingChangeAnalyzer = new BreakingChangeAnalyzer();
@@ -63,85 +56,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ message: "OAuth callback URL is accessible", timestamp: new Date().toISOString() });
   });
 
-  app.get("/api/auth/github/callback", async (req, res) => {
-    console.log("\n\n=== GITHUB OAUTH CALLBACK - FULL DEBUG ===");
-    console.log("1. Request received at:", new Date().toISOString());
-    console.log("2. Full URL:", req.url);
-    console.log("3. Query params:", JSON.stringify(req.query, null, 2));
-    console.log("4. Headers:", JSON.stringify(req.headers, null, 2));
-    
+  // GitHub App setup callback route
+  app.get("/api/auth/github/setup", async (req, res) => {
     try {
-      const { code, state } = req.query;
+      const { installation_id, setup_action } = req.query as { installation_id: string; setup_action: string };
       
-      if (!code) {
-        console.log("5. ERROR: No code in query params");
-        throw new Error("No authorization code");
+      console.log('GitHub App setup callback:', { installation_id, setup_action });
+      
+      if (setup_action !== 'install' || !installation_id) {
+        return res.redirect("/integrations?error=setup_failed");
       }
       
-      if (!state) {
-        console.log("5. ERROR: No state in query params");
-        throw new Error("No state parameter");
-      }
-      
-      console.log("5. Code present:", code.toString().substring(0, 10) + "...");
-      console.log("6. State present:", state.toString().substring(0, 20) + "...");
-      
-      // Try to decode state
-      let decodedState;
-      try {
-        // First URL decode the state parameter (GitHub may URL-encode it)
-        const urlDecodedState = decodeURIComponent(state as string);
-        console.log("7a. URL decoded state:", urlDecodedState.substring(0, 50) + "...");
-        
-        // Then Base64 decode it
-        decodedState = JSON.parse(Buffer.from(urlDecodedState, 'base64').toString());
-        console.log("7b. State decoded successfully:", decodedState);
-      } catch (e) {
-        console.log("7. ERROR: Failed to decode state:", e);
-        console.log("7. Raw state parameter:", state);
-        throw new Error("Invalid state parameter");
-      }
-      
-      // Try to exchange code
-      console.log("8. Attempting token exchange...");
-      let accessToken;
-      try {
-        accessToken = await exchangeCodeForToken(code as string);
-        console.log("9. Token exchange successful!");
-      } catch (e) {
-        console.log("9. ERROR: Token exchange failed:", e);
-        throw e;
-      }
-      
-      // Try to get user
-      console.log("10. Fetching GitHub user...");
-      let githubUser;
-      try {
-        githubUser = await getGitHubUser(accessToken);
-        console.log("11. GitHub user fetched:", githubUser.login);
-      } catch (e) {
-        console.log("11. ERROR: Failed to fetch user:", e);
-        throw e;
-      }
-      
-      // Try to save token
-      console.log("12. Saving token to database...");
-      try {
-        await saveUserGitHubToken(decodedState.userId, accessToken, githubUser);
-        console.log("13. Token saved successfully!");
-      } catch (e) {
-        console.log("13. ERROR: Failed to save token:", e);
-        throw e;
-      }
-      
-      console.log("14. SUCCESS: Redirecting to integrations page");
-      res.redirect("/integrations?connected=true");
+      // Store the installation ID temporarily and redirect to complete setup
+      // User will need to link this installation to their account
+      res.redirect(`/integrations?installation_id=${installation_id}&setup=complete`);
       
     } catch (error: any) {
-      console.log("\n=== CALLBACK FAILED ===");
-      console.log("Error:", error.message);
-      console.log("Stack:", error.stack);
+      console.error('GitHub App setup callback error:', error);
       res.redirect("/integrations?error=" + encodeURIComponent(error.message));
+    }
+  });
+
+  // Link GitHub App installation to user account
+  app.post("/api/auth/github/link-installation", authMiddleware, async (req: any, res) => {
+    try {
+      const { installation_id } = req.body;
+      const { githubAppService } = await import("./services/github-app");
+      
+      if (!installation_id) {
+        return res.status(400).json({ error: "Installation ID is required" });
+      }
+      
+      // Get installation details to verify it exists and get the GitHub username
+      const installationDetails = await githubAppService.getInstallationDetails(parseInt(installation_id));
+      
+      if (!installationDetails) {
+        return res.status(400).json({ error: "Installation not found" });
+      }
+      
+      // Save the installation to the user's account
+      await storage.saveUserGitHubInstallation(
+        req.user.id, 
+        parseInt(installation_id), 
+        installationDetails.account.login
+      );
+      
+      res.json({ 
+        success: true, 
+        installation: {
+          id: installation_id,
+          account: installationDetails.account.login
+        }
+      });
+      
+    } catch (error: any) {
+      console.error('Link installation error:', error);
+      res.status(400).json({ error: error.message });
     }
   });
 
@@ -166,44 +136,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // GitHub OAuth routes
-  app.get("/api/auth/github/authorize", authMiddleware, async (req: any, res) => {
+  // GitHub App installation routes
+  app.get("/api/auth/github/install", authMiddleware, async (req: any, res) => {
     try {
-      console.log('GitHub OAuth authorize request from user:', req.user?.id);
-      const authURL = getGitHubAuthURL(req.user.id);
-      console.log('Generated auth URL:', authURL);
-      res.json({ authUrl: authURL });
+      const { githubAppService } = await import("./services/github-app");
+      console.log('GitHub App installation request from user:', req.user.id);
+      const installUrl = githubAppService.getInstallationURL();
+      console.log('Generated installation URL:', installUrl);
+      res.json({ installUrl });
     } catch (error: any) {
-      console.error('GitHub OAuth authorize error:', error);
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.post("/api/auth/github/callback", authMiddleware, async (req: any, res) => {
+  // GitHub App installation webhook
+  app.post("/api/github/webhook", async (req, res) => {
     try {
-      const { code } = req.body;
-      const accessToken = await exchangeCodeForToken(code);
-      const githubUser = await getGitHubUser(accessToken);
+      const { action, installation, sender } = req.body;
+      console.log('GitHub App webhook:', action, installation?.id, sender?.login);
       
-      // Save encrypted token and user info
-      await saveUserGitHubToken(req.user.id, accessToken, githubUser);
+      if (action === 'created' && installation && sender) {
+        // Handle new installation
+        console.log(`GitHub App installed by ${sender.login} (installation ID: ${installation.id})`);
+        // TODO: Link installation to user account via setup flow
+      }
       
-      res.json({ 
-        success: true, 
-        githubUser: { login: githubUser.login, name: githubUser.name, id: githubUser.id } 
-      });
+      res.status(200).json({ received: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error('GitHub webhook error:', error);
+      res.status(500).json({ error: error.message });
     }
   });
 
   app.get("/api/auth/github", authMiddleware, async (req: any, res) => {
     try {
-      const { getUserGitHubToken } = await import("./services/github-oauth");
-      const accessToken = await getUserGitHubToken(req.user.id);
+      const { githubAppService } = await import("./services/github-app");
+      const installationId = await githubAppService.getUserInstallationId(req.user.id);
       res.json({ 
-        connected: !!accessToken,
-        hasToken: !!accessToken 
+        connected: !!installationId,
+        hasInstallation: !!installationId 
       });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -212,12 +183,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/auth/github/repositories", authMiddleware, async (req: any, res) => {
     try {
-      const { getUserGitHubToken } = await import("./services/github-oauth");
-      const accessToken = await getUserGitHubToken(req.user.id);
-      if (!accessToken) {
-        return res.status(400).json({ error: "GitHub not connected" });
+      const { githubAppService } = await import("./services/github-app");
+      const installationId = await githubAppService.getUserInstallationId(req.user.id);
+      if (!installationId) {
+        return res.status(400).json({ error: "GitHub App not installed" });
       }
-      const repos = await getUserRepositories(accessToken);
+      const repos = await githubAppService.getInstallationRepositories(installationId);
       res.json(repos);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
