@@ -2,6 +2,12 @@
 
 This guide helps you run API Sentinel locally or with Docker.
 
+## Known priorities
+
+- Local dev reliability — see issue #123
+- GitHub App connect flow — see issue #124
+- Alerts: email‑only — see issue #125
+
 ## Local Development
 
 1) Install dependencies
