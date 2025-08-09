@@ -1,4 +1,4 @@
-# API Sentinel 🛡️
+# API Guard 🛡️
 
 Proactive API change monitoring for GitHub repositories.
 
@@ -14,7 +14,7 @@ API Sentinel monitors your GitHub repositories for API specification changes, de
 - Rule‑based breaking‑change analysis with severity
 - Baselines and change history
 - Real‑time monitoring via GitHub App webhooks
-- Optional alerts via Email/Slack (env‑gated)
+- Optional alerts via Email (env‑gated)
 - CI/CD validation endpoint to block risky deployments
 - React UI for projects and change viewing
 
