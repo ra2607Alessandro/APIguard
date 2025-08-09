@@ -4,7 +4,7 @@
 - Frontend: React (Vite), React Query, Tailwind
 - GitHub Integration: GitHub App for repo access and webhooks
 - Analyzer: OpenAPI parsing + rule-based breaking-change detection
-- Alerts: Email (SendGrid) and Slack (optional, env-gated)
+- Alerts: Email (SendGrid) 
 
 ## Data Model (high-level)
 - `projects` → `spec_sources` → `schema_versions` → `change_analyses`
