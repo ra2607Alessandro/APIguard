@@ -1,0 +1,36 @@
+name: API Breaking Change Check
+on:
+  pull_request:
+    paths:
+      - 'api/**/*.yaml'
+      - 'api/**/*.yml'
+      - 'api/**/*.json'
+
+jobs:
+  check-breaking-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Convert OpenAPI YAML to JSON
+        if: ${{ endsWith(github.event.pull_request.head.ref, '') }}
+        run: |
+          pip install yq || sudo apt-get update && sudo apt-get install -y python3-pip && pip install yq
+          yq -o=json '.' api/openapi.yaml > openapi.json
+      - name: Check API Breaking Changes
+        env:
+          API_URL: ${{ secrets.API_SENTINEL_URL }}
+          TOKEN: ${{ secrets.API_SENTINEL_TOKEN }}
+          PROJECT: ${{ secrets.API_SENTINEL_PROJECT_ID }}
+        run: |
+          SPEC_PATH="api/openapi.json"
+          if [ -f "api/openapi.yaml" ]; then SPEC_PATH="openapi.json"; fi
+          curl -sS -X POST "$API_URL/api/ci/validate" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            --data @- <<EOF
+          {
+            "projectId": "$PROJECT",
+            "newSchema": $(cat "$SPEC_PATH"),
+            "environment": "production"
+          }
+EOF
