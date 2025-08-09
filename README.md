@@ -101,3 +101,19 @@ Please read `CONTRIBUTING.md`. Good first issues include: adding detection rules
 ## License
 Apache‑2.0. See `LICENSE`.
 
+## Help wanted (top priorities)
+
+We’re preparing for production and looking for contributors to help with three focus areas:
+
+1) Local development reliability (Windows/macOS/Linux)
+- Goal: “npm run dev” works out-of-the-box with Docker Postgres + migrations, clear `.env`, and docs.
+- Tracking: #123
+
+2) GitHub App connect flow (per‑user access to public and private repos)
+- Goal: Users can log in, authorize/install the GitHub App, and we can list/monitor all their repos.
+- Tracking: #124
+
+3) Alerts: simplify to email‑only
+- Goal: Keep email; remove/disable Slack from backend and UI behind env flags.
+- Tracking: #125
+
