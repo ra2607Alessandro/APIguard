@@ -1,4 +1,4 @@
-# Contributing to API Sentinel (OSS Core)
+# Contributing to API Guard (OSS Core)
 
 Thanks for your interest! This repository houses the open‑source core. Please:
 
