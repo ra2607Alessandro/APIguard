@@ -185,7 +185,7 @@ export default function EmailNotificationsPage() {
               </div>
 
               {/* Current Notifications */}
-              {notifications && (notifications as UserNotification[]).length > 0 && (
+              {Array.isArray(notifications) && (notifications as UserNotification[]).length > 0 && (
                 <div className="space-y-3">
                   <Separator />
                   <h4 className="font-medium">Active Email Notifications</h4>
@@ -220,7 +220,7 @@ export default function EmailNotificationsPage() {
                 </div>
               )}
 
-              {notifications && (notifications as UserNotification[]).length === 0 && (
+              {Array.isArray(notifications) && (notifications as UserNotification[]).length === 0 && (
                 <div className="text-center py-6 text-muted-foreground">
                   <AlertCircle className="h-8 w-8 mx-auto mb-2" />
                   <p>No email notifications configured for this project</p>

@@ -67,7 +67,7 @@ export default function ProjectsTable({ projects, onDeleteProject, isDeleting }:
               <div className="space-y-2">
                 <p className="font-medium">Monitoring Errors:</p>
                 {hasErrors ? (
-                  project.stats.errorSources.map((errorSource, idx) => (
+                  (project.stats?.errorSources || []).map((errorSource, idx) => (
                     <div key={idx} className="text-xs">
                       <div className="font-medium text-red-600">{errorSource.fileName}</div>
                       <div className="text-gray-600">{errorSource.error}</div>

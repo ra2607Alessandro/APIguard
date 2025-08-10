@@ -3,31 +3,33 @@ import { queryClient } from "@/lib/queryClient";
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  token: string | null;
   isLoading: boolean;
-  login: (token: string) => void;
+  login: () => void;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedToken = localStorage.getItem("auth-token");
-    if (storedToken) {
-      setToken(storedToken);
-      setIsAuthenticated(true);
-    }
-    setIsLoading(false);
+    // With HttpOnly cookies, we can't inspect the cookie.
+    // Perform a lightweight auth check by calling a protected endpoint.
+    (async () => {
+      try {
+        const res = await fetch('/api/dashboard/stats', { credentials: 'include' });
+        setIsAuthenticated(res.ok);
+      } catch {
+        setIsAuthenticated(false);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
   }, []);
 
-  const login = (newToken: string) => {
-    localStorage.setItem("auth-token", newToken);
-    setToken(newToken);
+  const login = () => {
     setIsAuthenticated(true);
     // Clear all cached queries and invalidate to refetch with new auth
     queryClient.clear();
@@ -35,15 +37,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.removeItem("auth-token");
-    setToken(null);
+    // Server will clear cookie; client just updates state
     setIsAuthenticated(false);
     // Clear all cached queries on logout
     queryClient.clear();
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, token, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, isLoading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

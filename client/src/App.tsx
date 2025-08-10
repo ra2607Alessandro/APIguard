@@ -18,7 +18,7 @@ import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { api } from "@/lib/api";
 
 function Router() {
-  const { isAuthenticated, token, isLoading } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const [location, setLocation] = useLocation();
   
   // Add loading state while auth is being determined

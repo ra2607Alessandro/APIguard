@@ -46,6 +46,7 @@ export function SignupPage() {
           password: data.password,
         }),
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
       });
       if (!response.ok) {
         const error = await response.json();
@@ -53,8 +54,8 @@ export function SignupPage() {
       }
       return response.json();
     },
-    onSuccess: async (data) => {
-      login(data.token);
+    onSuccess: async () => {
+      login();
       toast({
         title: "Account created successfully",
         description: "Welcome to API Sentinel!",

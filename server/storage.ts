@@ -661,26 +661,33 @@ export class DatabaseStorage implements IStorage {
   private encryptToken(token: string): string {
     const crypto = require('crypto');
     const key = Buffer.from(process.env.TOKEN_ENCRYPTION_KEY!, 'hex');
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipherGCM('aes-256-gcm', key, iv);
-    let encrypted = cipher.update(token, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
+    if (key.length !== 32) {
+      throw new Error('TOKEN_ENCRYPTION_KEY must be 32 bytes (64 hex chars)');
+    }
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const ciphertext = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
-    return iv.toString('hex') + ':' + encrypted + ':' + authTag.toString('hex');
+    return `${iv.toString('hex')}:${ciphertext.toString('hex')}:${authTag.toString('hex')}`;
   }
 
   private decryptToken(encryptedToken: string): string {
     const crypto = require('crypto');
     const key = Buffer.from(process.env.TOKEN_ENCRYPTION_KEY!, 'hex');
+    if (key.length !== 32) {
+      throw new Error('TOKEN_ENCRYPTION_KEY must be 32 bytes (64 hex chars)');
+    }
     const parts = encryptedToken.split(':');
+    if (parts.length !== 3) {
+      throw new Error('Invalid encrypted token format');
+    }
     const iv = Buffer.from(parts[0], 'hex');
-    const encrypted = parts[1];
+    const ciphertext = Buffer.from(parts[1], 'hex');
     const authTag = Buffer.from(parts[2], 'hex');
-    const decipher = crypto.createDecipherGCM('aes-256-gcm', key, iv);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
     decipher.setAuthTag(authTag);
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return plaintext.toString('utf8');
   }
 
   // User notification methods

@@ -91,7 +91,7 @@ export default function Projects() {
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
-            {githubStatus?.connected ? (
+            {(githubStatus as any)?.connected ? (
               <Button onClick={() => setShowSetupWizard(true)} data-testid="button-new-project">
                 <Plus className="h-4 w-4 mr-2" />
                 New Project
@@ -110,7 +110,7 @@ export default function Projects() {
       </div>
 
       {/* GitHub Connection Alert */}
-      {!githubStatusLoading && !githubStatus?.connected && (
+      {!githubStatusLoading && !(githubStatus as any)?.connected && (
         <Alert className="mb-6 border-blue-200 bg-blue-50">
           <Github className="h-4 w-4 text-blue-600" />
           <AlertDescription className="text-blue-800">

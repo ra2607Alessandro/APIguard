@@ -27,28 +27,7 @@ const openapiAnalyzer = new OpenAPIAnalyzer();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
-  // ISOLATED TEST CALLBACK - Add this FIRST in registerRoutes
-  app.get("/test-callback", async (req, res) => {
-    console.log("=== TEST CALLBACK HIT ===");
-    console.log("Query params:", req.query);
-    
-    // Test if we can reach this endpoint at all
-    res.send(`
-      <html>
-        <body>
-          <h1>Callback Test Successful</h1>
-          <p>Code: ${req.query.code || 'MISSING'}</p>
-          <p>State: ${req.query.state || 'MISSING'}</p>
-          <script>
-            console.log('Callback reached!', window.location.search);
-            setTimeout(() => {
-              window.location.href = '/integrations?test=success';
-            }, 2000);
-          </script>
-        </body>
-      </html>
-    `);
-  });
+
 
   // Test route to verify callback URL accessibility
   app.get("/api/auth/github/callback-test", (req, res) => {
@@ -161,7 +140,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const data = insertUserSchema.parse(req.body);
       const token = await signup({ email: data.username, password: data.password });
-      res.json({ token });
+      // Set HttpOnly auth cookie
+      res.cookie('auth-token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      res.json({ success: true });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -171,10 +157,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const data = insertUserSchema.parse(req.body);
       const token = await login({ email: data.username, password: data.password });
-      res.json({ token });
+      // Set HttpOnly auth cookie
+      res.cookie('auth-token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      res.json({ success: true });
     } catch (error: any) {
       res.status(401).json({ error: error.message });
     }
+  });
+
+  // Logout route to clear cookie
+  app.post('/api/auth/logout', (req, res) => {
+    res.clearCookie('auth-token', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' });
+    res.json({ success: true });
   });
 
   // GitHub App installation routes

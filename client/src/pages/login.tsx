@@ -38,6 +38,7 @@ export function LoginPage() {
         method: "POST",
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
       });
       if (!response.ok) {
         const error = await response.json();
@@ -45,8 +46,8 @@ export function LoginPage() {
       }
       return response.json();
     },
-    onSuccess: async (data) => {
-      login(data.token);
+    onSuccess: async () => {
+      login();
       toast({
         title: "Login successful",
         description: "Welcome back!",

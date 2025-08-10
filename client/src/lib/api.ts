@@ -3,25 +3,20 @@ const API_BASE = '/api';
 
 class ApiClient {
   private async request(method: string, url: string, data?: any) {
-    const token = localStorage.getItem("auth-token");
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
 
     const response = await fetch(`${API_BASE}${url}`, {
       method,
       headers,
       body: data ? JSON.stringify(data) : undefined,
+      credentials: 'include',
     });
 
     if (!response.ok) {
-      // Handle 401 Unauthorized - clear token and redirect to login
+      // Handle 401 Unauthorized - redirect to login
       if (response.status === 401) {
-        localStorage.removeItem("auth-token");
         window.location.href = "/login";
         return;
       }
