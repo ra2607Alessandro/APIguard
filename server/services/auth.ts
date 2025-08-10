@@ -6,9 +6,11 @@ import { users, type InsertUser, type User } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { Request, Response, NextFunction } from 'express';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-const TOKEN_ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY || 'your-32-byte-encryption-key-here!!';
-
+const JWT_SECRET = process.env.JWT_SECRET!;
+const TOKEN_ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY!;
+if (!JWT_SECRET || !TOKEN_ENCRYPTION_KEY) {
+  throw new Error('Missing JWT_SECRET or TOKEN_ENCRYPTION_KEY');
+}
 export async function signup(data: { email: string; password: string }) {
   const hashed = await bcrypt.hash(data.password, 10);
   const [user] = await db.insert(users).values({ username: data.email, password: hashed }).returning();
