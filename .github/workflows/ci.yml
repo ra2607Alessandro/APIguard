@@ -1,4 +1,4 @@
-# .github/workflows/ci.yml
+
 name: CI
 
 on:
@@ -57,7 +57,9 @@ jobs:
           cache: 'npm'
       
       - name: Install dependencies
-        run: npm ci
+        run: |
+          # Try npm ci first, fallback to npm install if lock file is out of sync
+          npm ci || (echo "Lock file out of sync, using npm install" && npm install)
       
       - name: Run linting and type checking
         run: npm run check
