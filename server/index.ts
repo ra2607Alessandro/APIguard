@@ -3,14 +3,72 @@ import cookieParser from 'cookie-parser';
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
-// At top of file, after imports
+// Environment-aware validation function
 function validateEnv() {
-  const required = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'TOKEN_ENCRYPTION_KEY'];
-  required.forEach(key => {
-    if (!process.env[key]) throw new Error(`Missing required env var: ${key}`);
-  });
-  console.log('✓ Environment validated successfully');
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  const isProduction = nodeEnv === 'production';
+  const isCI = process.env.CI === 'true';
+  const isTest = nodeEnv === 'test';
+
+  // Required variables for GitHub OAuth functionality
+  const githubOAuthVars = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET'];
+  
+  // Critical variables that should always be present (except in CI)
+  const criticalVars = ['TOKEN_ENCRYPTION_KEY'];
+  
+  // Always required variables
+  const alwaysRequired = ['DATABASE_URL'];
+
+  if (isProduction) {
+    // Production requires all variables
+    const required = [...githubOAuthVars, ...criticalVars, ...alwaysRequired];
+    const missing = required.filter(key => !process.env[key]);
+    
+    if (missing.length > 0) {
+      console.error(`❌ Missing required environment variables for production: ${missing.join(', ')}`);
+      console.error('Production deployment cannot continue without these variables.');
+      process.exit(1);
+    }
+    console.log('✓ All production environment variables validated');
+    return;
+  }
+
+  if (isCI || isTest) {
+    // In CI/test environments, we expect test values to be provided
+    // Just verify critical structure is there
+    const missing = alwaysRequired.filter(key => !process.env[key]);
+    
+    if (missing.length > 0) {
+      console.error(`❌ Missing critical variables in ${nodeEnv}: ${missing.join(', ')}`);
+      process.exit(1);
+    }
+    
+    console.log(`✓ Environment validated for ${nodeEnv} mode`);
+    
+    // Log which GitHub features will be available
+    const hasGitHubVars = githubOAuthVars.every(key => process.env[key]);
+    if (hasGitHubVars) {
+      console.log('ℹ️  GitHub OAuth integration enabled');
+    } else {
+      console.log('ℹ️  GitHub OAuth integration disabled (test environment)');
+    }
+    return;
+  }
+
+  // Development environment - warn about missing vars but don't fail
+  const allVars = [...githubOAuthVars, ...criticalVars, ...alwaysRequired];
+  const missing = allVars.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    console.warn(`⚠️  Missing environment variables: ${missing.join(', ')}`);
+    console.warn('   Some features may not work properly.');
+    console.warn('   Copy .env.example to .env and configure required variables.');
+  } else {
+    console.log('✓ All environment variables present');
+  }
 }
+
+// Validate environment on startup
 validateEnv();
 
 const app = express();
@@ -49,35 +107,46 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
+  try {
+    const server = await registerRoutes(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
-    throw err;
-  });
+      // Don't expose internal error details in production
+      const isProduction = process.env.NODE_ENV === 'production';
+      const safeMessage = isProduction && status === 500 ? "Internal Server Error" : message;
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+      res.status(status).json({ message: safeMessage });
+      
+      // Log error for debugging but don't re-throw in production
+      console.error(`Error ${status}: ${message}`);
+      if (!isProduction) {
+        throw err;
+      }
+    });
+
+    // Setup Vite in development, serve static files in production
+    if (app.get("env") === "development") {
+      await setupVite(app, server);
+    } else {
+      serveStatic(app);
+    }
+
+    // Start the server
+    const port = parseInt(process.env.PORT || '5000', 10);
+    server.listen({
+      port,
+      host: "0.0.0.0",
+      reusePort: true,
+    }, () => {
+      const env = process.env.NODE_ENV || 'development';
+      log(`🚀 Server running on port ${port} (${env} mode)`);
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
   }
-
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
-  });
 })();
