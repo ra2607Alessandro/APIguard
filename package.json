@@ -10,25 +10,18 @@
     "url": "https://github.com/ra2607Alessandro/APIguard.git"
   },
   "scripts": {
-    "dev": "npm run validate-env:dev && npm run dev:server",
+    "dev": "npm run dev:check && npm run dev:server",
+    "dev:check": "node scripts/check-setup.js",
     "dev:server": "tsx watch server/index.ts",
-    "build": "npm run validate-env && npm run build:client && npm run build:server",
+    "setup": "node scripts/setup-wizard.js",
+    
+    "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "esbuild server/index.ts --bundle --platform=node --outfile=dist/server/index.js --external:pg-native",
-    "start": "npm run validate-env:prod && node dist/server/index.js",
-    "test": "NODE_ENV=test npm run validate-env:test && jest",
+    "start": "node dist/server/index.js",
+    
+    "test": "NODE_ENV=test jest",
     "test:watch": "NODE_ENV=test jest --watch",
-    
-    "validate-env": "node validate-env.js",
-    "validate-env:dev": "NODE_ENV=development node validate-env.js --no-exit",
-    "validate-env:test": "NODE_ENV=test node validate-env.js",
-    "validate-env:prod": "NODE_ENV=production node validate-env.js",
-    "validate-env:sample": "node validate-env.js --sample",
-    
-    "check": "npm run type-check && npm run validate-env:dev",
-    "lint": "echo 'ESLint not configured yet - skipping linting'",
-    "lint:check": "echo 'ESLint not configured yet - skipping linting'",
-    "type-check": "tsc --noEmit",
     
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
@@ -36,14 +29,7 @@
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx scripts/seed.ts",
     
-    "docker:build": "docker build -t api-guard -f docker/Dockerfile .",
-    "docker:run": "docker run -p 5000:5000 --env-file .env api-guard",
-    "docker:dev": "docker compose up -d",
-    "docker:prod": "docker compose -f docker-compose.prod.yml up -d --build",
-    
-    "security:audit": "npm audit --audit-level moderate",
-    "security:check": "npm run security:audit && npm run validate-env:prod",
-    
+    "type-check": "tsc --noEmit",
     "clean": "rm -rf dist node_modules/.cache .next",
     "clean:install": "npm run clean && npm install",
     
