@@ -135,6 +135,36 @@ export class GitHubAppService {
     }
     return new Octokit({ auth: token });
   }
+
+  /**
+   * Get repository information
+   */
+  async getRepository(installationId: number, repoFullName: string): Promise<any> {
+    const octokit = await this.getInstallationOctokit(installationId);
+    const [owner, repo] = repoFullName.split('/');
+    const { data } = await octokit.rest.repos.get({ owner, repo });
+    return data;
+  }
+
+  /**
+   * Get user installation ID for a specific repository
+   */
+  async getUserInstallationIdForRepo(userId: string, owner: string, repo: string): Promise<number | null> {
+    const userInstallation = await storage.getUserGitHubInstallation(userId);
+    if (!userInstallation) {
+      return null;
+    }
+    
+    // Check if the installation can access this repository
+    try {
+      const octokit = await this.getInstallationOctokit(userInstallation.installation_id);
+      await octokit.rest.repos.get({ owner, repo });
+      return userInstallation.installation_id;
+    } catch (error) {
+      // Installation cannot access this repo
+      return null;
+    }
+  }
 }
 
 export const githubAppService = new GitHubAppService();

@@ -373,7 +373,7 @@ export class GitHubMonitor {
         let comparison;
         let analysisType: string;
 
-        if (latestVersion) {
+        if (latestVersion && latestVersion.content) {
           // Compare with previous version
           console.log(`  - Comparing versions: ${latestVersion.id} → ${newVersion.id}`);
           comparison = await openapiAnalyzer.compareSchemas(
@@ -477,12 +477,14 @@ export class GitHubMonitor {
     const project = await this.storage.getProject(projectId);
     if (!project) return;
 
+    const breakingChanges = [{
+      type: 'critical',
+      path: source.source_path,
+      description: `Failed to parse OpenAPI spec: ${errorMessage}`
+    }];
+
     const analysis = {
-      breakingChanges: [{
-        type: 'critical',
-        path: source.source_path,
-        description: `Failed to parse OpenAPI spec: ${errorMessage}`
-      }],
+      breakingChanges,
       nonBreakingChanges: [],
       summary: `Critical error in ${source.source_path}: Parsing failed.`
     };
@@ -492,45 +494,17 @@ export class GitHubMonitor {
     await alertService.triggerEmailAlerts(projectId, source.source_path, analysis);
     
     // Create a record of the change analysis
-    await this.storage.createChangeAnalysis({
-        project_id: projectId,
-        old_version_id: null,
-        new_version_id: null, // No version created due to parsing failure
-        breaking_changes: analysis.breakingChanges,
-        non_breaking_changes: analysis.nonBreakingChanges,
-        analysis_summary: analysis.summary,
-        severity: 'critical'
-      });
+    const savedAnalysis = await this.storage.createChangeAnalysis({
+      project_id: projectId,
+      old_version_id: null,
+      new_version_id: null,
+      breaking_changes: analysis.breakingChanges,
+      non_breaking_changes: analysis.nonBreakingChanges,
+      analysis_summary: analysis.summary,
+      severity: 'critical'
+    });
 
-    console.log(`🚨 Created critical parsing failure analysis: ${analysis.id}`);
-
-    // Trigger alerts for this critical failure
-    const project = await this.storage.getProject(projectId);
-    const alertConfigs = await this.storage.getAlertConfigs(projectId);
-    
-    if (project) {
-      const { AlertService } = await import('./alert-service');
-      const alertService = new AlertService();
-      
-      await alertService.triggerEmailAlerts(
-        projectId,
-        source.source_path,
-        {
-          breakingChanges,
-          nonBreakingChanges: [],
-          summary: `CRITICAL: API specification parsing failed - ${errorMessage}`
-        },
-        alertConfigs
-      );
-      
-      console.log(`🚨 CRITICAL alerts sent for parsing failure in ${project.name}`);
-    } else {
-      console.log(`⚠️  CRITICAL parsing failure but no alert configs for project ${projectId}`);
-    }
-
-  } catch (error: any) {
-    console.error(`❌ Failed to create parsing failure analysis:`, error.message);
-    // Don't re-throw - we want to continue monitoring other projects
+    console.log(`🚨 Created critical parsing failure analysis: ${savedAnalysis.id}`);
   }
 
   private async storeParsingError(sourceId: string, projectId: string, errorMessage: string): Promise<void> {
