@@ -19,6 +19,21 @@ interface AlertTestResult {
 
 // server/services/alert-service.ts (simplified)
 export class AlertService {
+  private emailService: any = null;
+
+  constructor() {
+    this.initEmailService();
+  }
+
+  private async initEmailService() {
+    try {
+      const { emailService } = await import('./email-service.js');
+      this.emailService = emailService;
+    } catch (error) {
+      console.warn('Email service not available:', error);
+    }
+  }
+
   async triggerEmailAlerts(projectId: string, apiName: string, result: any) {
     if (config.get('EMAIL_MODE') === 'console') {
       console.log(`
@@ -29,18 +44,12 @@ export class AlertService {
       `);
     } else if (config.get('EMAIL_MODE') === 'sendgrid') {
       // Existing SendGrid logic
+      if (this.emailService) {
+        // Your existing email logic here
+      }
     }
-  }
-}
+  
 
-  private async initEmailService() {
-    try {
-      const { emailService } = await import('./email-service.js');
-      this.emailService = emailService;
-    } catch (error) {
-      console.warn('Email service not available:', error);
-    }
-  }
 
   /**
    * Trigger email alerts for breaking changes detected in a project
