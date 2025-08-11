@@ -70,7 +70,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const installationDetails = await githubAppService.getInstallationDetails(parseInt(installation_id));
           
           if (installationDetails) {
-            const accountLogin = installationDetails.account?.login || installationDetails.account?.name || 'unknown';
+            const accountLogin = installationDetails.account ? ('login' in installationDetails.account ? installationDetails.account.login : installationDetails.account.name) : 'unknown';
             
             await storage.saveUserGitHubInstallation(
               userId,
@@ -112,7 +112,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Installation not found" });
       }
       
-      const accountLogin = installationDetails.account?.login || installationDetails.account?.name || 'unknown';
+      const accountLogin = installationDetails.account ? ('login' in installationDetails.account ? installationDetails.account.login : installationDetails.account.name) : 'unknown';
       
       // Save the installation to the user's account
       await storage.saveUserGitHubInstallation(
@@ -240,13 +240,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create project from GitHub repository
   app.post("/api/projects/from-repo", authMiddleware, async (req: any, res) => {
     try {
-      const { repoData } = req.body;
+      const { repoFullName } = req.body;
+      const { githubAppService } = await import("./services/github-app");
+      const installationId = await githubAppService.getUserInstallationId(req.user.id);
+      if (!installationId) {
+        return res.status(400).json({ error: "GitHub App not installed" });
+      }
       
+      const repoData = await githubAppService.getRepository(installationId, repoFullName);
+
       // Create project based on repository data
       const project = await storage.createProject({
         name: repoData.name,
-        description: repoData.description || `Monitoring project for ${repoData.full_name}`,
-        github_repo_url: repoData.html_url,
+        github_repo: repoData.html_url,
         user_id: req.user.id,
         health_status: 'healthy'
       });
@@ -883,20 +889,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(501).json({ 
         error: 'This endpoint is disabled. Use installation-based scanning instead.',
         suggestion: 'Use POST /api/discovery/repository-with-installation'
-      });
-      
-      res.json({
-        repository: `${owner}/${repo}`,
-        timestamp: new Date().toISOString(),
-        comparison: comparisonReport,
-        summary: {
-          llmFound: comparisonReport.llmDetectionResults.length,
-          patternFound: comparisonReport.patternMatchingResults.length,
-          improvement: {
-            additionalSpecs: comparisonReport.improvementMetrics.additionalSpecsFound,
-            processingTime: comparisonReport.improvementMetrics.processingTimeComparison
-          }
-        }
       });
     } catch (error: any) {
       console.error('Error comparing detection methods:', error);

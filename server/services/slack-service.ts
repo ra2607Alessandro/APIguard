@@ -107,24 +107,18 @@ export async function sendBreakingChangeAlert(
     }
 
     // Send to all configured destinations
-    const sendPromises = destinations.map(async (destination) => {
-      try {
-        await sendSlackAlert(
-          destination.workspace_id,
-          destination.channel_id,
-          text,
-          blocks
-        );
-        console.log(`Successfully sent alert to workspace ${destination.workspace_id}, channel ${destination.channel_name}`);
-      } catch (error) {
-        console.error(`Failed to send alert to workspace ${destination.workspace_id}, channel ${destination.channel_name}:`, error);
-        // Don't throw - continue sending to other destinations
-      }
-    });
+    const sendPromises = destinations.map((destination: any) => 
+      sendSlackAlert(
+        destination.workspace_id,
+        destination.channel_id,
+        text,
+        blocks
+      )
+    );
 
     await Promise.allSettled(sendPromises);
   } catch (error) {
-    console.error('Failed to send breaking change alerts:', error);
+    console.error(`Failed to send breaking change alert for project ${projectId}:`, error);
     throw error;
   }
 }

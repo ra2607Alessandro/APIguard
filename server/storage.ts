@@ -82,6 +82,8 @@ export interface IStorage {
   getAlertConfigs(projectId: string): Promise<AlertConfig[]>;
   createAlertConfig(alertConfig: InsertAlertConfig): Promise<AlertConfig>;
   updateAlertConfig(id: string, alertConfig: Partial<InsertAlertConfig>): Promise<AlertConfig>;
+  deleteAlertConfig(id: string): Promise<void>;
+  getAlertDestinationsForProject(projectId: string): Promise<AlertConfig[]>;
 
   // Discovered specs methods
   getDiscoveredSpecs(projectId: string): Promise<DiscoveredSpec[]>;
@@ -416,6 +418,23 @@ export class DatabaseStorage implements IStorage {
       .where(eq(alert_configs.id, id))
       .returning();
     return updatedConfig;
+  }
+
+  async deleteAlertConfig(id: string): Promise<void> {
+    await db.delete(alert_configs).where(eq(alert_configs.id, id));
+  }
+
+  async getAlertDestinationsForProject(projectId: string): Promise<AlertConfig[]> {
+    return await db
+      .select()
+      .from(alert_configs)
+      .where(
+        and(
+          eq(alert_configs.project_id, projectId),
+          eq(alert_configs.channel_type, 'slack'),
+          eq(alert_configs.is_active, true)
+        )
+      );
   }
 
   // Discovered specs methods

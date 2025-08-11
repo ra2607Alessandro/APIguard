@@ -94,15 +94,13 @@ export default function SlackIntegrationPage() {
         throw new Error("Please select a workspace and channel first");
       }
 
-      return apiRequest("/api/slack/test", {
-        method: "POST",
-        body: JSON.stringify({
-          workspaceId: selectedWorkspace,
-          channelId: selectedChannel,
-        }),
+      return apiRequest("POST", "/api/slack/test", {
+        workspaceId: selectedWorkspace,
+        channelId: selectedChannel,
+        projectId: selectedProject,
       });
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       toast({
         title: "Test Successful",
         description: "Test notification sent to Slack channel successfully!",
@@ -127,15 +125,12 @@ export default function SlackIntegrationPage() {
       const selectedChannelData = (channels as SlackChannel[])?.find(ch => ch.id === selectedChannel);
       if (!selectedChannelData) throw new Error('Channel not found');
 
-      return apiRequest('/api/alert-destinations', {
-        method: 'POST',
-        body: JSON.stringify({
-          project_id: selectedProject,
-          workspace_id: selectedWorkspace,
-          channel_id: selectedChannel,
-          channel_name: selectedChannelData.name,
-          is_primary: true,
-        }),
+      return apiRequest('POST', '/api/alert-destinations', {
+        project_id: selectedProject,
+        workspace_id: selectedWorkspace,
+        channel_id: selectedChannel,
+        channel_name: selectedChannelData.name,
+        is_primary: true,
       });
     },
     onSuccess: () => {

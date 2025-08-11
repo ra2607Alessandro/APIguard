@@ -24,13 +24,14 @@ export class GitHubMonitor {
   }
 
   private async getOctokitForRepo(userId: string, owner: string, repo: string): Promise<Octokit> {
-    // Find a user installation that can access this repo
-    const userInstalls = await this.storage.getUserGitHubInstallations(userId);
-    for (const inst of userInstalls) {
-      const ok = await githubService.canAccessRepository(inst.installation_id, owner, repo);
-      if (ok) return await githubService.getInstallationOctokit(inst.installation_id);
+    const { githubAppService } = await import("./github-app");
+    const installationId = await githubAppService.getUserInstallationIdForRepo(userId, owner, repo);
+    if (!installationId) {
+      throw new Error(`Could not find installation for ${owner}/${repo} for user ${userId}`);
     }
-    throw new Error(`No GitHub App installation can access ${owner}/${repo}`);
+    const octokit = await githubAppService.getInstallationOctokit(installationId);
+    this.repositoryScanner = new RepositoryScanner(octokit);
+    return octokit;
   }
 
   async startMonitoring(): Promise<void> {
@@ -473,58 +474,63 @@ export class GitHubMonitor {
     errorMessage: string, 
     commitSha?: string
   ): Promise<void> {
-    try {
-      // Create a parsing failure analysis
-      const breakingChanges = [{
-        type: 'parsing_failure',
-        severity: 'critical',
-        path: source.source_path,
-        description: `YAML/JSON parsing failed: ${errorMessage}`,
-        impact: 'API specification is unparseable, making the API contract unusable for consumers',
-        details: errorMessage
-      }];
+    const project = await this.storage.getProject(projectId);
+    if (!project) return;
 
-      // Create analysis record
-      const analysis = await this.storage.createChangeAnalysis({
+    const analysis = {
+      breakingChanges: [{
+        type: 'critical',
+        path: source.source_path,
+        description: `Failed to parse OpenAPI spec: ${errorMessage}`
+      }],
+      nonBreakingChanges: [],
+      summary: `Critical error in ${source.source_path}: Parsing failed.`
+    };
+
+    // Use the AlertService to send notifications
+    const alertService = new AlertService();
+    await alertService.triggerEmailAlerts(projectId, source.source_path, analysis);
+    
+    // Create a record of the change analysis
+    await this.storage.createChangeAnalysis({
         project_id: projectId,
         old_version_id: null,
         new_version_id: null, // No version created due to parsing failure
-        breaking_changes: breakingChanges,
-        non_breaking_changes: [],
-        analysis_summary: `Critical parsing failure in ${source.source_path}: ${errorMessage}`,
+        breaking_changes: analysis.breakingChanges,
+        non_breaking_changes: analysis.nonBreakingChanges,
+        analysis_summary: analysis.summary,
         severity: 'critical'
       });
 
-      console.log(`🚨 Created critical parsing failure analysis: ${analysis.id}`);
+    console.log(`🚨 Created critical parsing failure analysis: ${analysis.id}`);
 
-      // Trigger alerts for this critical failure
-      const project = await this.storage.getProject(projectId);
-      const alertConfigs = await this.storage.getAlertConfigs(projectId);
+    // Trigger alerts for this critical failure
+    const project = await this.storage.getProject(projectId);
+    const alertConfigs = await this.storage.getAlertConfigs(projectId);
+    
+    if (project) {
+      const { AlertService } = await import('./alert-service');
+      const alertService = new AlertService();
       
-      if (project) {
-        const { AlertService } = await import('./alert-service');
-        const alertService = new AlertService();
-        
-        await alertService.triggerEmailAlerts(
-          projectId,
-          source.source_path,
-          {
-            breakingChanges,
-            nonBreakingChanges: [],
-            summary: `CRITICAL: API specification parsing failed - ${errorMessage}`
-          },
-          alertConfigs
-        );
-        
-        console.log(`🚨 CRITICAL alerts sent for parsing failure in ${project.name}`);
-      } else {
-        console.log(`⚠️  CRITICAL parsing failure but no alert configs for project ${projectId}`);
-      }
-
-    } catch (error: any) {
-      console.error(`❌ Failed to create parsing failure analysis:`, error.message);
-      // Don't re-throw - we want to continue monitoring other projects
+      await alertService.triggerEmailAlerts(
+        projectId,
+        source.source_path,
+        {
+          breakingChanges,
+          nonBreakingChanges: [],
+          summary: `CRITICAL: API specification parsing failed - ${errorMessage}`
+        },
+        alertConfigs
+      );
+      
+      console.log(`🚨 CRITICAL alerts sent for parsing failure in ${project.name}`);
+    } else {
+      console.log(`⚠️  CRITICAL parsing failure but no alert configs for project ${projectId}`);
     }
+
+  } catch (error: any) {
+    console.error(`❌ Failed to create parsing failure analysis:`, error.message);
+    // Don't re-throw - we want to continue monitoring other projects
   }
 
   private async storeParsingError(sourceId: string, projectId: string, errorMessage: string): Promise<void> {
@@ -640,7 +646,7 @@ export class GitHubMonitor {
       const sources = await this.storage.getSpecSources(projectId);
 
       for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
-        await this.checkForChanges(projectId, source, owner, repo);
+        await this.checkForChanges(projectId, source, project.user_id, owner, repo);
       }
 
       console.log(`Manual check completed for project ${projectId}`);
@@ -650,31 +656,21 @@ export class GitHubMonitor {
     }
   }
 
-  private async getFileContent(owner: string, repo: string, path: string): Promise<any> {
+  private async getFileContent(octokit: Octokit, owner: string, repo: string, path: string): Promise<any> {
     try {
-      const response = await this.octokit.repos.getContent({
+      const response = await octokit.rest.repos.getContent({
         owner,
         repo,
         path,
       });
 
-      if (Array.isArray(response.data) || response.data.type !== 'file') {
-        return null;
+      if ('content' in response.data) {
+        return Buffer.from(response.data.content, 'base64').toString('utf-8');
       }
-
-      const content = Buffer.from(response.data.content, 'base64').toString();
-      
-      try {
-        return path.endsWith('.json') 
-          ? JSON.parse(content) 
-          : require('js-yaml').load(content);
-      } catch (parseError) {
-        console.error(`Error parsing ${path}:`, parseError);
-        return null;
-      }
-    } catch (error) {
-      console.error(`Error getting file content for ${path}:`, error);
-      return null;
+      throw new Error("No content found in file response");
+    } catch (error: any) {
+      console.error(`Failed to get file content for ${owner}/${repo}/${path}:`, error.message);
+      throw error;
     }
   }
 
@@ -716,6 +712,7 @@ export class GitHubMonitor {
 
   // Recursive search for OpenAPI specs in any directory
   private async recursiveSearch(
+    octokit: Octokit,
     owner: string, 
     repo: string, 
     branch: string, 
@@ -730,7 +727,7 @@ export class GitHubMonitor {
     }
 
     try {
-      const contents = await this.octokit.repos.getContent({
+      const contents = await octokit.rest.repos.getContent({
         owner,
         repo,
         path,
@@ -744,7 +741,7 @@ export class GitHubMonitor {
             if (this.isLikelyOpenAPIFile(item.name)) {
               console.log(`🔍 Found potential OpenAPI file: ${item.path}`);
               try {
-                const fileResponse = await this.octokit.repos.getContent({
+                const fileResponse = await octokit.rest.repos.getContent({
                   owner,
                   repo,
                   path: item.path,
@@ -787,7 +784,7 @@ export class GitHubMonitor {
             }
           } else if (item.type === 'dir' && !this.shouldSkipDirectory(item.name)) {
             // Recursively search subdirectories
-            await this.recursiveSearch(owner, repo, branch, item.path, discoveredSpecs, depth + 1);
+            await this.recursiveSearch(octokit, owner, repo, branch, item.path, discoveredSpecs, depth + 1);
           }
         }
       }

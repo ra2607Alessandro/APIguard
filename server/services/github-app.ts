@@ -119,6 +119,22 @@ export class GitHubAppService {
     const encodedSetupUrl = encodeURIComponent(setupUrl);
     return `https://github.com/apps/the-api-sentinel/installations/new?setup_url=${encodedSetupUrl}`;
   }
+
+  /**
+   * Get an installation Octokit instance with repository access
+   */
+  async getInstallationOctokit(installationId: number): Promise<Octokit> {
+    const authResult = await this.app.auth({
+      type: "installation",
+      installationId,
+    });
+    // Type assertion to fix TS2339
+    const token = (authResult as any).token;
+    if (!token) {
+      throw new Error("Failed to get installation token");
+    }
+    return new Octokit({ auth: token });
+  }
 }
 
 export const githubAppService = new GitHubAppService();
