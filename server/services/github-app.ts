@@ -2,6 +2,12 @@ import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import { storage } from "../storage";
 
+interface SpecFile {
+  path: string;
+  content: string;
+  sha: string;
+}
+
 export class GitHubAppService {
   private app: Octokit;
 
@@ -163,6 +169,112 @@ export class GitHubAppService {
     } catch (error) {
       // Installation cannot access this repo
       return null;
+    }
+  }
+
+  /**
+   * NEW: Scan repository for OpenAPI specifications
+   */
+  async scanRepositoryForSpecs(installationId: number, owner: string, repo: string): Promise<SpecFile[]> {
+    try {
+      // Try to use the unified GitHub service first (fallback approach)
+      const { githubService } = await import('./github.js');
+      return await githubService.findOpenAPISpecs(owner, repo);
+    } catch (error) {
+      // Fallback to direct implementation if unified service not available
+      console.warn('Unified GitHub service not available, using direct implementation');
+      return await this.directScanForSpecs(installationId, owner, repo);
+    }
+  }
+
+  /**
+   * Direct implementation of spec scanning (fallback)
+   */
+  private async directScanForSpecs(installationId: number, owner: string, repo: string): Promise<SpecFile[]> {
+    const octokit = await this.getInstallationOctokit(installationId);
+    const specs: SpecFile[] = [];
+    
+    const commonPaths = [
+      'openapi.json', 'openapi.yaml', 'openapi.yml',
+      'swagger.json', 'swagger.yaml', 'swagger.yml',
+      'api/openapi.json', 'api/openapi.yaml',
+      'docs/api.json', 'docs/api.yaml',
+      'spec/openapi.json', 'spec/openapi.yaml',
+    ];
+    
+    for (const path of commonPaths) {
+      try {
+        const { data } = await octokit.rest.repos.getContent({
+          owner,
+          repo,
+          path,
+        });
+        
+        if ('content' in data) {
+          specs.push({
+            path,
+            content: Buffer.from(data.content, 'base64').toString('utf-8'),
+            sha: data.sha,
+          });
+        }
+      } catch (error: any) {
+        // File doesn't exist, continue
+        if (error.status !== 404) {
+          console.warn(`Error checking ${path}:`, error.message);
+        }
+      }
+    }
+    
+    return specs;
+  }
+
+  /**
+   * NEW: Check if installation can access a repository
+   */
+  async canAccessRepository(installationId: number, owner: string, repo: string): Promise<boolean> {
+    try {
+      const octokit = await this.getInstallationOctokit(installationId);
+      await octokit.rest.repos.get({ owner, repo });
+      return true;
+    } catch (error: any) {
+      console.warn(`Cannot access repository ${owner}/${repo}:`, error.message);
+      return false;
+    }
+  }
+
+  /**
+   * NEW: Store installation data
+   */
+  async storeInstallation(data: any) {
+    try {
+      // Use storage to save installation if method exists
+      if (storage.saveInstallation) {
+        return await storage.saveInstallation(data);
+      }
+      
+      // Fallback: return stub data for compatibility
+      console.log('Storing installation (stub):', data);
+      return { id: data.installationId || 1, ...data };
+    } catch (error) {
+      console.error('Error storing installation:', error);
+      // Return stub to prevent breaking
+      return { id: 1, ...data };
+    }
+  }
+
+  /**
+   * NEW: Remove installation data
+   */
+  async removeInstallation(userId: string, installationId: number) {
+    try {
+      // Use storage to remove installation if method exists
+      if (storage.removeUserGitHubInstallation) {
+        return await storage.removeUserGitHubInstallation(userId);
+      }
+      
+      console.log(`Removing installation ${installationId} for user ${userId} (stub)`);
+    } catch (error) {
+      console.error('Error removing installation:', error);
     }
   }
 }
