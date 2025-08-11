@@ -17,13 +17,21 @@ interface AlertTestResult {
   details?: any;
 }
 
+// server/services/alert-service.ts (simplified)
 export class AlertService {
-  private emailService: any;
-
-  constructor() {
-    // Initialize email service for sending alerts
-    this.initEmailService();
+  async triggerEmailAlerts(projectId: string, apiName: string, result: any) {
+    if (config.get('EMAIL_MODE') === 'console') {
+      console.log(`
+        🚨 Breaking Change Detected!
+        Project: ${projectId}
+        API: ${apiName}
+        Changes: ${JSON.stringify(result, null, 2)}
+      `);
+    } else if (config.get('EMAIL_MODE') === 'sendgrid') {
+      // Existing SendGrid logic
+    }
   }
+}
 
   private async initEmailService() {
     try {
