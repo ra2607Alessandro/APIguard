@@ -5,7 +5,8 @@ import type { SpecSource, MonitoringConfig } from "@shared/schema";
 import * as yaml from 'js-yaml';
 import * as crypto from 'crypto';
 import RepositoryScanner from './repositoryScanner.js';
-import { githubService } from "./github";
+
+import { AlertService } from './alert-service'; 
 
 interface DiscoveredSpec {
   filePath: string;
