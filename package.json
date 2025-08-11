@@ -14,6 +14,7 @@
     "dev:check": "node scripts/check-setup.js",
     "dev:server": "tsx watch server/index.ts",
     "setup": "node scripts/setup-wizard.js",
+    "check": "npm run type-check",
     
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
