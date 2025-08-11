@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG } from './config-defs.js';
+import { DEFAULT_CONFIG } from './config-defaults.js';
 
 export class Config {
   private static instance: Config;
