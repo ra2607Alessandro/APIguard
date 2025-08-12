@@ -17,7 +17,6 @@ interface AlertTestResult {
   details?: any;
 }
 
-// server/services/alert-service.ts (simplified)
 export class AlertService {
   private emailService: any = null;
 
@@ -34,40 +33,23 @@ export class AlertService {
     }
   }
 
-  async triggerEmailAlerts(projectId: string, apiName: string, result: any) {
-    if (config.get('EMAIL_MODE') === 'console') {
-      console.log(`
-        🚨 Breaking Change Detected!
-        Project: ${projectId}
-        API: ${apiName}
-        Changes: ${JSON.stringify(result, null, 2)}
-      `);
-    } else if (config.get('EMAIL_MODE') === 'sendgrid') {
-      // Existing SendGrid logic
-      if (this.emailService) {
-        // Your existing email logic here
-      }
-    }
-  
-
-
   /**
    * Trigger email alerts for breaking changes detected in a project
    */
   async triggerEmailAlerts(
-    projectId: string, 
-    apiName: string, 
+    projectId: string,
+    apiName: string,
     result: any
   ): Promise<void> {
     try {
       // Get email notifications for this project
       const notifications = await storage.getUserNotifications(projectId);
-      
+
       if (notifications.length === 0) {
         console.log(`No email notifications configured for project ${projectId}`);
         return;
       }
-      
+
       // Ensure email service is available
       if (!this.emailService) {
         await this.initEmailService();
@@ -86,12 +68,12 @@ export class AlertService {
 
       // Send email alerts to all subscribed addresses
       const emailPromises = notifications
-        .filter(notification => notification.is_active)
-        .map(notification => 
+        .filter((notification: UserNotification) => notification.is_active)
+        .map((notification: UserNotification) =>
           this.emailService.sendBreakingChangeAlert(
-            notification, 
-            project.name, 
-            apiName, 
+            notification,
+            project.name,
+            apiName,
             result
           )
         );
@@ -119,7 +101,7 @@ export class AlertService {
       }
 
       await this.emailService.sendTestEmail(email, projectName);
-      
+
       return {
         success: true,
         message: "Test email sent successfully"
