@@ -91,7 +91,9 @@ export class GitHubAppService {
    */
   private async generateJWT(): Promise<string> {
     // Use the existing app auth which handles JWT generation
-    const { token } = await this.app.auth({ type: "app" });
+    const authResult = await this.app.auth({ type: "app" });
+    // Safely access token property with type assertion
+    const token = (authResult as { token: string }).token;
     return token;
   }
 
@@ -135,7 +137,7 @@ export class GitHubAppService {
       installationId,
     });
     // Type assertion to fix TS2339
-    const token = (authResult as any).token;
+    const token = (authResult as { token: string }).token;
     if (!token) {
       throw new Error("Failed to get installation token");
     }
@@ -176,15 +178,9 @@ export class GitHubAppService {
    * NEW: Scan repository for OpenAPI specifications
    */
   async scanRepositoryForSpecs(installationId: number, owner: string, repo: string): Promise<SpecFile[]> {
-    try {
-      // Try to use the unified GitHub service first (fallback approach)
-      const { githubService } = await import('./github.js');
-      return await githubService.findOpenAPISpecs(owner, repo);
-    } catch (error) {
-      // Fallback to direct implementation if unified service not available
-      console.warn('Unified GitHub service not available, using direct implementation');
-      return await this.directScanForSpecs(installationId, owner, repo);
-    }
+    // Remove dynamic import of './github.js' as file/module does not exist
+    // Use direct implementation only
+    return await this.directScanForSpecs(installationId, owner, repo);
   }
 
   /**
@@ -244,15 +240,12 @@ export class GitHubAppService {
 
   /**
    * NEW: Store installation data
+   * Remove saveInstallation as it does not exist on storage,
+   * and return a stub as fallback
    */
   async storeInstallation(data: any) {
     try {
-      // Use storage to save installation if method exists
-      if (storage.saveInstallation) {
-        return await storage.saveInstallation(data);
-      }
-      
-      // Fallback: return stub data for compatibility
+      // No storage.saveInstallation method; always use stub
       console.log('Storing installation (stub):', data);
       return { id: data.installationId || 1, ...data };
     } catch (error) {
@@ -264,14 +257,12 @@ export class GitHubAppService {
 
   /**
    * NEW: Remove installation data
+   * Remove removeUserGitHubInstallation as it does not exist on storage,
+   * and just log as a stub
    */
   async removeInstallation(userId: string, installationId: number) {
     try {
-      // Use storage to remove installation if method exists
-      if (storage.removeUserGitHubInstallation) {
-        return await storage.removeUserGitHubInstallation(userId);
-      }
-      
+      // No storage.removeUserGitHubInstallation method; just log
       console.log(`Removing installation ${installationId} for user ${userId} (stub)`);
     } catch (error) {
       console.error('Error removing installation:', error);
