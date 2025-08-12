@@ -99,22 +99,36 @@ export class GitHubMonitor {
   }
 
   private parseRepositoryUrl(repoUrl: string): { owner: string; repo: string } {
+    // Handle different formats:
+    // "owner/repo"
+    // "https://github.com/owner/repo"
+    // "https://github.com/owner/repo.git"
+    
     if (!repoUrl) return { owner: '', repo: '' };
+    
+    // Clean the URL
     let cleanUrl = repoUrl.trim();
+    
+    // Remove .git suffix if present
     if (cleanUrl.endsWith('.git')) {
       cleanUrl = cleanUrl.slice(0, -4);
     }
+    
+    // Extract owner/repo from different formats
     if (cleanUrl.includes('github.com')) {
+      // Full GitHub URL format
       const match = cleanUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
       if (match) {
         return { owner: match[1], repo: match[2] };
       }
     } else if (cleanUrl.includes('/') && !cleanUrl.includes('://')) {
+      // Simple owner/repo format
       const [owner, repo] = cleanUrl.split('/');
       if (owner && repo) {
         return { owner, repo };
       }
     }
+    
     console.warn(`Could not parse repository URL: ${repoUrl}`);
     return { owner: '', repo: '' };
   }
@@ -189,11 +203,13 @@ export class GitHubMonitor {
               } catch (sourceError: any) {
                 console.error(`❌ Failed to check ${source.source_path} in project ${project.name}:`, sourceError.message);
                 console.error(`   Continuing with other sources...`);
+                // Continue processing other sources
               }
             }
           } catch (projectError: any) {
             console.error(`❌ Failed to process project ${project.name}:`, projectError.message);
             console.error(`   Continuing with other projects...`);
+            // Continue processing other projects
           }
         }
         return;
@@ -204,6 +220,7 @@ export class GitHubMonitor {
         const commitSha = payload.pull_request.head.sha;
         console.log(`Processing PR event for ${owner}/${repo}, commit: ${commitSha}`);
         
+        // Process PR events (same logic as push events)
         const projects = await this.storage.getProjects();
         const relevantProjects = projects.filter(p => {
           if (!p.github_repo || !p.is_active) return false;
@@ -220,11 +237,13 @@ export class GitHubMonitor {
               } catch (sourceError: any) {
                 console.error(`❌ Failed to check ${source.source_path} in project ${project.name}:`, sourceError.message);
                 console.error(`   Continuing with other sources...`);
+                // Continue processing other sources
               }
             }
           } catch (projectError: any) {
             console.error(`❌ Failed to process project ${project.name}:`, projectError.message);
             console.error(`   Continuing with other projects...`);
+            // Continue processing other projects
           }
         }
       }
@@ -234,6 +253,7 @@ export class GitHubMonitor {
       console.error("❌ Critical error handling webhook event:", error.message);
       console.error("   Stack trace:", error.stack);
       console.error("   Service health: Monitoring continues despite this error");
+      // Don't re-throw to prevent service crash - log and continue
     }
   }
 
@@ -246,7 +266,10 @@ export class GitHubMonitor {
     commitSha?: string
   ): Promise<void> {
     try {
+      // Get installation-based Octokit for this repo
       const octokit = await this.getOctokitForRepo(userId, owner, repo);
+      
+      // Get current spec content
       const fileResponse = await octokit.repos.getContent({
         owner,
         repo,
@@ -266,16 +289,26 @@ export class GitHubMonitor {
         if (source.source_path.endsWith('.json')) {
           parsedContent = JSON.parse(content);
         } else {
+          // Enhanced YAML processing with validation
           const validation = this.validateYamlStructure(content);
+          
           if (!validation.isValid) {
             console.error(`❌ YAML parsing failed for ${source.source_path}:`);
             console.error(`   Error: ${validation.error}`);
             console.error(`   Treating as CRITICAL breaking change - triggering alerts`);
+            
+            // Create analysis record for parsing failure
             await this.createParsingFailureAnalysis(projectId, source, validation.error || 'Unknown YAML error', commitSha);
+            
+            // Store parsing error in database
             await this.storeParsingError(source.id, projectId, validation.error || 'Unknown YAML error');
-            return;
+            return; // Return after handling parsing failure properly
           }
+          
+          // Use cleaned content for parsing
           parsedContent = yaml.load(validation.cleanedContent!);
+          
+          // Validate the parsed content is a valid object
           if (!parsedContent || typeof parsedContent !== 'object') {
             throw new Error('Parsed YAML is not a valid object');
           }
@@ -284,11 +317,16 @@ export class GitHubMonitor {
         console.error(`❌ File parsing failed for ${source.source_path}:`);
         console.error(`   Error: ${parseError.message}`);
         console.error(`   Treating as CRITICAL breaking change - triggering alerts`);
+        
+        // Create analysis record for parsing failure
         await this.createParsingFailureAnalysis(projectId, source, parseError.message, commitSha);
+        
+        // Store parsing error in database
         await this.storeParsingError(source.id, projectId, parseError.message);
-        return;
+        return; // Return after handling parsing failure properly
       }
 
+      // Get latest version for comparison
       const latestVersion = await this.storage.getLatestSchemaVersion(source.id);
       const versionHash = this.generateHash(JSON.stringify(parsedContent), projectId, source.id);
 
@@ -298,11 +336,13 @@ export class GitHubMonitor {
       console.log(`  - New content hash: ${versionHash}`);
       console.log(`  - Content changed: ${!latestVersion || latestVersion.version_hash !== versionHash}`);
 
+      // Check if content has changed
       if (latestVersion && latestVersion.version_hash === versionHash) {
         console.log(`No changes detected in ${source.source_path}`);
         return;
       }
 
+      // Create new schema version with transaction handling
       const newVersion = await this.storage.createSchemaVersionWithTransaction({
         project_id: projectId,
         version_hash: versionHash,
@@ -318,7 +358,11 @@ export class GitHubMonitor {
       console.log(`  - Previous version ID: ${latestVersion?.id || 'none'}`);
       console.log(`  - Will run analysis: YES (always run analysis)`);
 
+      // Always run analysis - either compare with previous version or treat as baseline
+      console.log(`🔬 Starting analysis for ${source.source_path}`);
+      
       try {
+        // Import the required services with error handling
         const { OpenAPIAnalyzer } = await import('./openapi-analyzer');
         const { BreakingChangeAnalyzer } = await import('./breaking-change-rules');
         const { AlertService } = await import('./alert-service');
@@ -331,6 +375,7 @@ export class GitHubMonitor {
         let analysisType: string;
 
         if (latestVersion && latestVersion.content) {
+          // Compare with previous version
           console.log(`  - Comparing versions: ${latestVersion.id} → ${newVersion.id}`);
           comparison = await openapiAnalyzer.compareSchemas(
             latestVersion.content, 
@@ -338,18 +383,21 @@ export class GitHubMonitor {
           );
           analysisType = 'version_comparison';
         } else {
+          // First version - treat as all new endpoints (baseline)
           console.log(`  - First version analysis: treating as baseline`);
           comparison = await openapiAnalyzer.compareSchemas(
-            {}, 
+            {}, // Empty schema as baseline
             parsedContent
           );
           analysisType = 'baseline_creation';
         }
         
+        // Analyze for breaking changes
         const analysis = breakingChangeAnalyzer.analyzeChanges(comparison);
         
         console.log(`📊 Analysis complete (${analysisType}): ${analysis.breakingChanges.length} breaking, ${analysis.nonBreakingChanges.length} safe changes`);
         
+        // Store the analysis
         await this.storage.createChangeAnalysis({
           project_id: projectId,
           old_version_id: latestVersion?.id || null,
@@ -360,6 +408,7 @@ export class GitHubMonitor {
           severity: this.calculateSeverity(analysis.breakingChanges)
         });
 
+        // For baseline creation, only alert on actual breaking changes (not new endpoints)
         const shouldAlert = latestVersion ? 
           analysis.breakingChanges.length > 0 : 
           analysis.breakingChanges.some(change => !change.description.includes('new endpoint'));
@@ -367,6 +416,8 @@ export class GitHubMonitor {
         if (shouldAlert && analysis.breakingChanges.length > 0) {
           const project = await this.storage.getProject(projectId);
           const alertConfigs = await this.storage.getAlertConfigs(projectId);
+          
+          // Send email alerts for breaking changes
           if (project) {
             try {
               await alertService.triggerEmailAlerts(
@@ -385,6 +436,7 @@ export class GitHubMonitor {
           console.log(`✅ Baseline created for ${source.source_path} with ${analysis.nonBreakingChanges.length} endpoints`);
         }
 
+        // Clear any previous errors and mark successful analysis
         await this.clearParsingError(source.id, projectId);
         
       } catch (error: any) {
@@ -393,7 +445,11 @@ export class GitHubMonitor {
         console.error(`   Type: ${error.constructor.name}`);
         console.error(`   Stack trace:`, error.stack);
         console.error(`   Analysis failed but monitoring continues for other projects`);
+        
+        // Store specific parsing error
         await this.storeParsingError(source.id, projectId, error.message);
+        
+        // Log service health status
         console.error(`🏥 Service Health Check:`);
         console.error(`   - Monitoring service: ACTIVE`);
         console.error(`   - Error handling: RESILIENT`);
@@ -405,7 +461,11 @@ export class GitHubMonitor {
       console.error(`   Error: ${error.message}`);
       console.error(`   Type: ${error.constructor.name}`);
       console.error(`   Monitoring continues for other sources and projects`);
+      
+      // Store parsing error information
       await this.storeParsingError(source.id, projectId, error.message);
+      
+      // Don't re-throw to prevent cascading failures
     }
   }
 
@@ -430,9 +490,11 @@ export class GitHubMonitor {
       summary: `Critical error in ${source.source_path}: Parsing failed.`
     };
 
+    // Use the AlertService to send notifications
     const alertService = new AlertService();
     await alertService.triggerEmailAlerts(projectId, source.source_path, analysis);
-
+    
+    // Create a record of the change analysis
     const savedAnalysis = await this.storage.createChangeAnalysis({
       project_id: projectId,
       old_version_id: null,
@@ -448,8 +510,12 @@ export class GitHubMonitor {
 
   private async storeParsingError(sourceId: string, projectId: string, errorMessage: string): Promise<void> {
     try {
+      // Update spec source with error information
       await this.storage.updateSpecSourceError(sourceId, errorMessage);
+      
+      // Update project health status to 'error'
       await this.storage.updateProjectHealth(projectId, 'error');
+      
       console.log(`💾 Stored parsing error for source ${sourceId}`);
     } catch (error: any) {
       console.error(`Failed to store parsing error:`, error.message);
@@ -458,13 +524,17 @@ export class GitHubMonitor {
 
   private async clearParsingError(sourceId: string, projectId: string): Promise<void> {
     try {
+      // Clear error from spec source and mark successful analysis
       await this.storage.clearSpecSourceError(sourceId);
+      
+      // Check if all sources are healthy, then update project status
       const sources = await this.storage.getSpecSources(projectId);
-      // Fix: Check for null before calling .some()
-      const hasErrors = Array.isArray(sources) && sources.some(s => s.last_error);
+      const hasErrors = sources.some(s => s.last_error);
+      
       if (!hasErrors) {
         await this.storage.updateProjectHealth(projectId, 'healthy');
       }
+      
       console.log(`🧹 Cleared parsing error for source ${sourceId}`);
     } catch (error: any) {
       console.error(`Failed to clear parsing error:`, error.message);
@@ -472,33 +542,49 @@ export class GitHubMonitor {
   }
 
   async scanRepository(repository: string): Promise<DiscoveredSpec[]> {
+    // Handle both full GitHub URLs and owner/repo format
     let owner: string, repo: string;
+    
     if (repository.includes('github.com')) {
+      // Extract from full URL like https://github.com/owner/repo
       const match = repository.match(/github\.com\/([^\/]+)\/([^\/\?#]+)/);
       if (!match) {
         throw new Error(`Invalid GitHub repository URL: ${repository}`);
       }
       [, owner, repo] = match;
+      // Remove .git suffix if present
       repo = repo.replace(/\.git$/, '');
     } else if (repository.includes('/')) {
+      // Handle owner/repo format
       [owner, repo] = repository.split('/');
     } else {
       throw new Error(`Invalid repository format: ${repository}. Expected 'owner/repo' or GitHub URL`);
     }
+    
     if (!owner || !repo) {
       throw new Error(`Invalid repository format: ${repository}. Expected 'owner/repo' or GitHub URL`);
     }
+    
     console.log(`📍 Parsed repository: ${owner}/${repo} from input: ${repository}`);
+    
     try {
+      // Use LLM-based intelligent detection as the primary method
       console.log(`🤖 Starting intelligent API spec detection for ${owner}/${repo}`);
+      if (!this.repositoryScanner) {
+        throw new Error('RepositoryScanner is not initialized. You must initialize it before calling scanRepository().');
+      }
       const specInfos = await this.repositoryScanner.detectSpecsWithFallback(owner, repo);
+      
+      // Convert to DiscoveredSpec format
       const discoveredSpecs: DiscoveredSpec[] = specInfos.map(spec => ({
         filePath: spec.filePath,
         apiName: spec.apiName,
         version: spec.version,
         content: spec.content
       }));
+
       console.log(`✅ Intelligent detection found ${discoveredSpecs.length} API specs in ${owner}/${repo}`);
+      
       return discoveredSpecs;
     } catch (error: any) {
       console.error(`❌ Intelligent detection failed for ${owner}/${repo}:`, error.message);
@@ -510,6 +596,7 @@ export class GitHubMonitor {
     try {
       const repository = `${owner}/${repo}`;
       const specs = await this.scanRepository(repository);
+      
       return {
         repository,
         specsFound: specs.length,
@@ -532,11 +619,14 @@ export class GitHubMonitor {
       if (!project || !project.github_repo) {
         throw new Error("Project not found or no GitHub repository configured");
       }
+
       const [owner, repo] = project.github_repo.split('/');
       const sources = await this.storage.getSpecSources(projectId);
+
       for (const source of sources.filter(s => s.type === 'github' && s.is_active)) {
         await this.checkForChanges(projectId, source, project.user_id, owner, repo);
       }
+
       console.log(`Manual check completed for project ${projectId}`);
     } catch (error) {
       console.error(`Error during manual check for project ${projectId}:`, error);
@@ -564,12 +654,16 @@ export class GitHubMonitor {
 
   private calculateSeverity(breakingChanges: any[]): string {
     if (breakingChanges.length === 0) return 'low';
+    
     const hasCritical = breakingChanges.some(change => change.severity === 'critical');
     if (hasCritical) return 'critical';
+    
     const hasHigh = breakingChanges.some(change => change.severity === 'high');
     if (hasHigh) return 'high';
+    
     const hasMedium = breakingChanges.some(change => change.severity === 'medium');
     if (hasMedium) return 'medium';
+    
     return 'low';
   }
 
@@ -600,6 +694,7 @@ export class GitHubMonitor {
       console.log(`🔍 Max recursion depth reached for path: ${path}`);
       return;
     }
+
     try {
       const contents = await octokit.rest.repos.getContent({
         owner,
@@ -607,6 +702,7 @@ export class GitHubMonitor {
         path,
         ref: branch
       });
+
       if (Array.isArray(contents.data)) {
         for (const item of contents.data) {
           if (item.type === 'file') {
@@ -619,9 +715,11 @@ export class GitHubMonitor {
                   path: item.path,
                   ref: branch
                 });
+
                 if (!Array.isArray(fileResponse.data) && fileResponse.data.type === 'file') {
                   const content = Buffer.from(fileResponse.data.content, 'base64').toString();
                   let parsedContent;
+
                   try {
                     if (item.name.endsWith('.json')) {
                       parsedContent = JSON.parse(content);
@@ -633,6 +731,7 @@ export class GitHubMonitor {
                         parsedContent = JSON.parse(content);
                       }
                     }
+
                     if (this.isValidOpenAPISpec(parsedContent)) {
                       console.log(`✅ Found valid OpenAPI spec at: ${item.path}`);
                       discoveredSpecs.push({
