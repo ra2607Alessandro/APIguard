@@ -4,7 +4,14 @@
   "type": "module",
   "license": "Apache-2.0",
   "description": "Proactive API change monitoring for GitHub repositories",
-  "keywords": ["api", "monitoring", "openapi", "github", "ci-cd", "breaking-changes"],
+  "keywords": [
+    "api",
+    "monitoring",
+    "openapi",
+    "github",
+    "ci-cd",
+    "breaking-changes"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ra2607Alessandro/APIguard.git"
@@ -15,25 +22,20 @@
     "dev:server": "tsx watch server/index.ts",
     "setup": "node scripts/setup-wizard.js",
     "check": "npm run type-check",
-    
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
-    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:pg-native --external:@babel/preset-typescript --external:lightningcss --external:../pkg"
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:pg-native",
     "start": "node dist/server/index.js",
-    
     "test": "NODE_ENV=test jest",
     "test:watch": "NODE_ENV=test jest --watch",
-    
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx scripts/seed.ts",
-    
     "type-check": "tsc --noEmit",
     "clean": "rm -rf dist node_modules/.cache .next",
     "clean:install": "npm run clean && npm install",
-    
     "postinstall": "npm run db:generate || true"
   },
   "dependencies": {
