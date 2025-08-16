@@ -1,7 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import cookieParser from 'cookie-parser';
 import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+import { serveStatic, log } from "./vite"; // keep only safe exports
 
 // Environment-aware validation function
 function validateEnv() {
@@ -129,6 +129,8 @@ app.use((req, res, next) => {
 
     // Setup Vite in development, serve static files in production
     if (app.get("env") === "development") {
+      // dynamically import dev-only code so esbuild won't bundle it for production
+      const { setupVite } = await import("./vite");
       await setupVite(app, server);
     } else {
       serveStatic(app);
