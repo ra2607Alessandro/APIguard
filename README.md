@@ -49,8 +49,7 @@ cp config/env.example .env
 **Required Variables** (minimum for basic functionality):
 ```env
 # Database Connection (Required)
-DATABASE_URL=postgresql://username:password@localhost:5432/apisentinel
-
+DATABASE_URL="postgresql://<user>:<pass>@localhost:5432/<db>"
 # JWT Secret for authentication (Required - Generate with: openssl rand -hex 32)
 JWT_SECRET=your-generated-jwt-secret-here
 
@@ -104,7 +103,7 @@ All configuration is handled through environment variables. See `config/env.exam
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@localhost:5432/db` |
+| `DATABASE_URL` | PostgreSQL connection string | `"postgresql://<user>:<pass>@localhost:5432/<db>"` |
 | `JWT_SECRET` | Secret key for JWT tokens | `generated-with-openssl-rand-hex-32` |
 
 #### Optional Integrations
@@ -251,7 +250,7 @@ Add your GitHub App credentials to `.env`:
 
 ```env
 GITHUB_APP_ID=123456
-GITHUB_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nYOUR_PRIVATE_KEY_HERE\n-----END RSA PRIVATE KEY-----"
+GITHUB_PRIVATE_KEY= your-private-key-here
 GITHUB_WEBHOOK_SECRET=your-webhook-secret-here
 ```
 
