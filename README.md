@@ -389,7 +389,7 @@ We're preparing for production and looking for help with:
 
 ## Security
 
-This project takes security seriously. Please see our [Security Policy](SECURITY.md) for reporting vulnerabilities.
+This project takes security seriously. Please see our SECURITY.md for reporting vulnerabilities.
 
 **Never commit sensitive information** such as:
 - API keys or tokens
